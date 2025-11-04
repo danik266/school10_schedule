@@ -1,15 +1,70 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../app/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model cabinets {
+  room_id     Int     @id @default(autoincrement())
+  room_number String  @db.VarChar(10)
+  room_name   String? @db.VarChar(100)
+  schedule    schedule[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model classes {
+  class_id       Int          @id @default(autoincrement())
+  class_name     String       @db.VarChar(50)
+  students_count Int?
+  class_type     String?      @db.VarChar(50)
+  room_number    String?      @db.VarChar(10)
+  study_plan     study_plan[]
+  schedule       schedule[]
+}
+
+model study_plan {
+  study_plan_id  Int      @id @default(autoincrement())
+  class_id       Int
+  subject_id     Int
+  hours_per_week Decimal  @db.Decimal(4, 1)
+  hours_per_year Int
+  classes        classes  @relation(fields: [class_id], references: [class_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_class")
+  subjects       subjects @relation(fields: [subject_id], references: [subject_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_subject")
+}
+
+model subjects {
+  subject_id Int          @id @default(autoincrement())
+  name       String
+  type       String?      @default("required") @db.VarChar(20)
+  study_plan study_plan[]
+  schedule   schedule[]
+}
+
+model teachers {
+  teacher_id Int     @id @default(autoincrement())
+  full_name  String  @db.VarChar(100)
+  subject    String  @db.VarChar(50)
+  classroom  String? @db.VarChar(20)
+  nuances    String? @db.VarChar(50)
+  schedule   schedule[]
+}
+
+model schedule {
+  schedule_id Int     @id @default(autoincrement())
+  class_id    Int
+  subject_id  Int
+  teacher_id  Int
+  room_id     Int
+  day_of_week String
+  lesson_num  Int
+  year        Int
+
+  classes   classes   @relation(fields: [class_id], references: [class_id])
+  subjects  subjects  @relation(fields: [subject_id], references: [subject_id])
+  teachers  teachers  @relation(fields: [teacher_id], references: [teacher_id])
+  cabinets  cabinets  @relation(fields: [room_id], references: [room_id])
 }
