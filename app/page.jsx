@@ -47,7 +47,7 @@ export default function Home() {
     });
 
     if (res.ok) {
-      router.push("/dashboard");
+      router.push("/schedule-view");
     } else {
       setError(t[lang].err);
     }

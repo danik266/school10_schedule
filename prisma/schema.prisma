@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../app/generated/prisma"
 }
 
 datasource db {
@@ -9,9 +8,9 @@ datasource db {
 }
 
 model cabinets {
-  room_id     Int     @id @default(autoincrement())
-  room_number String  @db.VarChar(10)
-  room_name   String? @db.VarChar(100)
+  room_id     Int        @id @default(autoincrement())
+  room_number String     @db.VarChar(10)
+  room_name   String?    @db.VarChar(100)
   schedule    schedule[]
 }
 
@@ -22,8 +21,8 @@ model classes {
   students_count Int?
   class_type     String?      @db.VarChar(50)
   room_number    String?      @db.VarChar(10)
-  study_plan     study_plan[]
   schedule       schedule[]
+  study_plan     study_plan[]
 }
 
 model study_plan {
@@ -40,31 +39,30 @@ model subjects {
   subject_id Int          @id @default(autoincrement())
   name       String
   type       String?      @default("required") @db.VarChar(20)
-  study_plan study_plan[]
   schedule   schedule[]
+  study_plan study_plan[]
 }
 
 model teachers {
-  teacher_id Int     @id @default(autoincrement())
-  full_name  String  @db.VarChar(100)
-  subject    String  @db.VarChar(50)
-  classroom  String? @db.VarChar(20)
-  nuances    String? @db.VarChar(50)
+  teacher_id Int        @id @default(autoincrement())
+  full_name  String     @db.VarChar(100)
+  subject    String     @db.VarChar(50)
+  classroom  String?    @db.VarChar(20)
+  nuances    String?    @db.VarChar(50)
   schedule   schedule[]
 }
 
 model schedule {
-  schedule_id Int     @id @default(autoincrement())
+  schedule_id Int      @id @default(autoincrement())
   class_id    Int
   subject_id  Int
   teacher_id  Int
   room_id     Int
-  day_of_week String
+  day_of_week String   @db.VarChar(20)
   lesson_num  Int
   year        Int
-
-  classes   classes   @relation(fields: [class_id], references: [class_id])
-  subjects  subjects  @relation(fields: [subject_id], references: [subject_id])
-  teachers  teachers  @relation(fields: [teacher_id], references: [teacher_id])
-  cabinets  cabinets  @relation(fields: [room_id], references: [room_id])
+  cabinets    cabinets @relation(fields: [room_id], references: [room_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_cabinet")
+  classes     classes  @relation(fields: [class_id], references: [class_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_class")
+  subjects    subjects @relation(fields: [subject_id], references: [subject_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_subject")
+  teachers    teachers @relation(fields: [teacher_id], references: [teacher_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_teacher")
 }

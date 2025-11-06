@@ -19,6 +19,8 @@ export default function SchedulePage() {
     thursday: "",
     friday: "",
   });
+
+  // ✅ Сюда добавляем
   const [existingSchedule, setExistingSchedule] = useState([]);
 
   // Загружаем учителей, классы и кабинеты
