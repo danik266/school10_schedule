@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
+import Header from "../components/Header";
+import Footer from "../components/Footer";
 
 export default function ScheduleView() {
   const [schedule, setSchedule] = useState({});
@@ -10,6 +12,13 @@ export default function ScheduleView() {
   const [generating, setGenerating] = useState(false);
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const dayNamesRu = {
+  Monday: "Понедельник",
+  Tuesday: "Вторник",
+  Wednesday: "Среда",
+  Thursday: "Четверг",
+  Friday: "Пятница",
+};
 
   const fetchSchedule = async () => {
     setLoading(true);
@@ -149,6 +158,8 @@ export default function ScheduleView() {
   if (loading) return <div>Загрузка расписания...</div>;
 
   return (
+    <>
+    <Header />
     <div className="p-4 space-y-8">
       <button
         onClick={generateSchedule}
@@ -184,8 +195,11 @@ export default function ScheduleView() {
                     <tr>
                       <th className="border border-gray-300 p-2">#</th>
                       {days.map((day) => (
-                        <th key={day} className="border border-gray-300 p-2">{day}</th>
-                      ))}
+  <th key={day} className="border border-gray-300 p-2">
+    {dayNamesRu[day]}
+  </th>
+))}
+
                     </tr>
                   </thead>
                   <tbody>
@@ -238,5 +252,7 @@ export default function ScheduleView() {
           );
         })}
     </div>
+    <Footer />
+    </>
   );
 }
