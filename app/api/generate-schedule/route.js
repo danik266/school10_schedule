@@ -3,8 +3,6 @@ const prisma = new PrismaClient();
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const maxLessonsPerDay = 6;
-
-// Список физруков
 const peTeachers = [
   "Муратовва Дильназ Ермековна",
   "Аканов Максут Серикболович",
@@ -14,10 +12,8 @@ const peTeachers = [
 
 export async function POST(req) {
   try {
-    // Удаляем старое расписание
     await prisma.schedule.deleteMany({});
 
-    // Получаем все данные
     const classes = await prisma.classes.findMany({
       include: { study_plan: { include: { subjects: true } } },
     });
@@ -25,8 +21,6 @@ export async function POST(req) {
     const cabinets = await prisma.cabinets.findMany();
 
     const newSchedule = [];
-
-    // Кабинеты заняты по дню и уроку
     const cabinetUsage = {};
     for (const day of days) cabinetUsage[day] = {};
 
@@ -35,7 +29,6 @@ export async function POST(req) {
       const splitSubjects =
         cls.class_type?.split(/[-,]/).map((s) => s.trim().toLowerCase()) || [];
 
-      // Формируем массив уроков
       let lessons = [];
       cls.study_plan.forEach((sp) => {
         if (!sp.subjects) return;
@@ -49,11 +42,10 @@ export async function POST(req) {
       });
       if (!lessons.length) continue;
 
-      // Распределяем уроки по дням
       const dayLoad = {};
       for (let day of days) dayLoad[day] = [];
-
       let dayIndex = 0;
+
       for (const lesson of lessons) {
         let placed = false;
         let tries = 0;
@@ -76,34 +68,30 @@ export async function POST(req) {
         }
       }
 
-      // Создаём уроки по дням
       for (let day of days) {
         const dayLessons = dayLoad[day];
         for (let i = 0; i < dayLessons.length; i++) {
           const lesson = dayLessons[i];
           const lessonNum = i + 1;
 
-          // Учитель по предмету
           let teacher = teachers.find(
             (t) => t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
           );
           if (!teacher)
             teacher = teachers[Math.floor(Math.random() * teachers.length)];
 
-          // Проверяем, нужно ли делить на подгруппы
           const normalizedLesson = lesson.subject_name.trim().toLowerCase();
           const shouldSplit =
             studentsCount > 24 &&
             splitSubjects.some((s) => normalizedLesson.includes(s));
 
           let room;
-
-          // Если учитель в списке PE — ставим спортзал
-          const isPE = peTeachers.includes(teacher.full_name);
+          const isPE = normalizedLesson.includes("дене шыныктыру") || peTeachers.includes(teacher.full_name);
 
           if (isPE) {
+            // Автоматически спортзал
             const gyms = cabinets.filter(c =>
-              (c.name || "").toLowerCase().includes("спортзал")
+              (c.room_name || "").toLowerCase().includes("спортзал")
             );
             room = gyms.length ? gyms[0] : cabinets[0];
 
@@ -120,7 +108,7 @@ export async function POST(req) {
               year: new Date().getFullYear(),
             });
           } else if (shouldSplit) {
-            // === Подгруппы для больших классов ===
+            // Подгруппы для больших классов (как у тебя)
             let availableRooms1 = cabinets.filter(r => {
               const used = (cabinetUsage[day][lessonNum]) || [];
               return !used.includes(r.room_id);
@@ -193,15 +181,10 @@ export async function POST(req) {
       await prisma.schedule.createMany({ data: newSchedule });
     }
 
-    return new Response(
-      JSON.stringify({ success: true, count: newSchedule.length }),
-      { status: 200 }
-    );
+    return new Response(JSON.stringify({ success: true, count: newSchedule.length }), { status: 200 });
+
   } catch (error) {
     console.error("Ошибка генерации расписания:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 500 }
-    );
+    return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500 });
   }
 }

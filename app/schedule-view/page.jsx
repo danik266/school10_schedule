@@ -7,10 +7,20 @@ import Footer from "../components/Footer";
 
 export default function ScheduleView() {
   const [schedule, setSchedule] = useState({});
+  const [cabinets, setCabinets] = useState([]); 
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [currentClassIndex, setCurrentClassIndex] = useState(0);
+const fetchCabinets = async () => {
+  try {
+    const res = await fetch("/api/get-cabinets");
+    const data = await res.json();
+    if (data.success) setCabinets(data.cabinets);
+  } catch (err) {
+    console.error("Ошибка при загрузке кабинетов:", err);
+  }
+};
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   const dayNamesRu = {
@@ -26,6 +36,7 @@ export default function ScheduleView() {
     try {
       const res = await fetch("/api/get-schedule");
       const data = await res.json();
+       console.log("schedule raw data:", data); // <-- добавь это
       if (data.success) {
         setSchedule(data.schedule);
         setTeachers(data.teachers);
@@ -55,7 +66,7 @@ export default function ScheduleView() {
     }
   };
 
-  const updateTeacher = async (schedule_id, teacher_id, day_of_week, lesson_num) => {
+    const updateTeacher = async (schedule_id, teacher_id, day_of_week, lesson_num) => {
     try {
       const res = await fetch("/api/update-schedule", {
         method: "POST",
@@ -72,6 +83,27 @@ export default function ScheduleView() {
       console.error(err);
     }
   };
+
+    const updateRoom = async (schedule_id, room, day_of_week, lesson_num) => {
+    try {
+      const res = await fetch("/api/update-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule_id, room, day_of_week, lesson_num }),
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        alert(data.error || "Ошибка при обновлении кабинета");
+      } else {
+        await fetchSchedule();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
 
   const getInitials = (fullName) => {
     if (!fullName) return "";
@@ -144,9 +176,10 @@ export default function ScheduleView() {
     XLSX.writeFile(workbook, "Расписание.xlsx");
   };
 
-  useEffect(() => {
-    fetchSchedule();
-  }, []);
+useEffect(() => {
+  fetchSchedule();
+  fetchCabinets();
+}, []);
 
   if (loading) return <div>Загрузка расписания...</div>;
 
@@ -222,7 +255,21 @@ export default function ScheduleView() {
                               <div key={idx} className="mb-2 p-2 rounded bg-white border border-gray-200">
                                 <div className="font-semibold">{lesson.subject}{groupLabel}</div>
                                 <div className="text-sm mt-1">{fullName}</div>
-                                <div className="text-sm text-gray-600 mt-1 italic">Кабинет: {lesson.room || "Не назначен"}</div>
+                                <select
+  className="w-full border rounded p-1 text-sm mt-1"
+  value={lesson.room_id || ""}
+  onChange={(e) =>
+    updateRoom(lesson.schedule_id, e.target.value, day, i + 1)
+  }
+>
+  <option value="">Не выбрано</option>
+  {cabinets.map((c) => (
+    <option key={c.room_id} value={c.room_id}>
+      {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
+    </option>
+  ))}
+</select>
+
                                 <select
                                   className="w-full border rounded p-1 text-sm mt-1"
                                   value={lesson.teacher_id || ""}

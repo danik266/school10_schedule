@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useLanguage } from "./context/LanguageContext";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
-import Slider from "react-slick"; // npm install react-slick slick-carousel
+import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 
@@ -220,34 +220,30 @@ export default function Home() {
                                 );
                               return (
                                 <td key={day} className="border border-gray-300 p-2">
-                                  {lessons.map((lesson, idx) => {
-                                    const teacherObj = teachers.find(
-                                      (t) =>
-                                        t.teacher_id.toString() === lesson.teacher_id?.toString()
-                                    );
-                                    const teacherName = teacherObj
-                                      ? teacherObj.full_name
-                                      : "Не назначен";
+  {lessons.length > 0 ? (
+lessons.map((lesson, idx) => {
+  const teacherObj = teachers.find(
+    (t) => t.teacher_id.toString() === lesson.teacher_id?.toString()
+  );
 
-                                    return (
-                                      <div
-                                        key={idx}
-                                        className="mb-2 p-2 rounded bg-white border border-gray-200"
-                                      >
-                                        <div className="font-semibold">
-                                          {lesson.subject}
-                                          {lessons.length > 1 ? ` (${idx + 1} подгруппа)` : ""}
-                                        </div>
-                                        <div className="text-xs text-gray-600 mt-1">{teacherName}</div>
-                                        {lesson.room && (
-                                          <div className="text-xs text-gray-500 mt-1 italic">
-                                            Каб. {lesson.room}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </td>
+  const teacherName = teacherObj ? teacherObj.full_name : "Не назначен";
+  const room = teacherObj?.classroom ? teacherObj.classroom : "Кабинет не назначен";
+
+  return (
+    <div key={idx} className="mb-2 p-2 rounded bg-white border border-gray-200">
+      <div className="font-semibold">
+        {lesson.subject}
+        {lessons.length > 1 ? ` (${idx + 1} подгруппа)` : ""}
+      </div>
+      <div className="text-xs text-gray-600 mt-1">{teacherName}</div>
+      <div className="text-xs text-gray-500 mt-1 italic">{room}</div>
+    </div>
+  );
+})
+  ) : (
+    <div className="text-center text-gray-400">—</div>
+  )}
+</td>
                               );
                             })}
                           </tr>
