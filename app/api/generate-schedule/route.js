@@ -1,8 +1,16 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client"; 
 const prisma = new PrismaClient();
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const maxLessonsPerDay = 6;
+
+// Список физруков
+const peTeachers = [
+  "Муратовва Дильназ Ермековна",
+  "Аканов Максут Серикболович",
+  "Туспеков Жасулан Асылбекулы",
+  "Сеитов Ерасыл Толепбергенович",
+];
 
 export async function POST(req) {
   try {
@@ -83,106 +91,99 @@ export async function POST(req) {
             teacher = teachers[Math.floor(Math.random() * teachers.length)];
 
           // Проверяем, нужно ли делить на подгруппы
-          // Проверяем, урок ли это физкультура
-const normalizedLesson = lesson.subject_name.trim().toLowerCase();
-const isPE = normalizedLesson.includes("дене шыныктыру");
-const shouldSplit =
-  studentsCount > 24 &&
-  splitSubjects.some((s) => normalizedLesson.includes(s));
+          const normalizedLesson = lesson.subject_name.trim().toLowerCase();
+          const shouldSplit =
+            studentsCount > 24 &&
+            splitSubjects.some((s) => normalizedLesson.includes(s));
 
-let room;
-let teacherToUse = teacher; // для обычных уроков
+          let room;
 
-if (isPE) {
-  // Выбираем спортзал
-  const gyms = cabinets.filter(c =>
-    (c.name || "").toLowerCase().includes("спортзал")
-  );
-  room = gyms.length ? gyms[gyms.length - 1] : cabinets[0];
+          // Если учитель в списке PE — ставим спортзал
+          const isPE = peTeachers.includes(teacher.full_name);
 
-  // Обновляем занятость кабинета
-  if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
-  cabinetUsage[day][lessonNum].push(room.room_id);
+          if (isPE) {
+            const gyms = cabinets.filter(c =>
+              (c.name || "").toLowerCase().includes("спортзал")
+            );
+            room = gyms.length ? gyms[0] : cabinets[0];
 
-  newSchedule.push({
-    class_id: cls.class_id,
-    subject_id: lesson.subject_id,
-    teacher_id: teacher.teacher_id,
-    room_id: room.room_id,
-    day_of_week: day,
-    lesson_num: lessonNum,
-    year: new Date().getFullYear(),
-  });
+            if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
+            cabinetUsage[day][lessonNum].push(room.room_id);
 
-} else if (shouldSplit) {
-  // === Подгруппы для больших классов ===
-  // Подгруппа 1
-  let availableRooms1 = cabinets.filter(r => {
-    const used = (cabinetUsage[day][lessonNum]) || [];
-    return !used.includes(r.room_id);
-  });
-  if (!availableRooms1.length) availableRooms1 = [...cabinets];
-  const room1 = availableRooms1[Math.floor(Math.random() * availableRooms1.length)];
-  if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
-  cabinetUsage[day][lessonNum].push(room1.room_id);
+            newSchedule.push({
+              class_id: cls.class_id,
+              subject_id: lesson.subject_id,
+              teacher_id: teacher.teacher_id,
+              room_id: room.room_id,
+              day_of_week: day,
+              lesson_num: lessonNum,
+              year: new Date().getFullYear(),
+            });
+          } else if (shouldSplit) {
+            // === Подгруппы для больших классов ===
+            let availableRooms1 = cabinets.filter(r => {
+              const used = (cabinetUsage[day][lessonNum]) || [];
+              return !used.includes(r.room_id);
+            });
+            if (!availableRooms1.length) availableRooms1 = [...cabinets];
+            const room1 = availableRooms1[Math.floor(Math.random() * availableRooms1.length)];
+            if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
+            cabinetUsage[day][lessonNum].push(room1.room_id);
 
-  newSchedule.push({
-    class_id: cls.class_id,
-    subject_id: lesson.subject_id,
-    teacher_id: teacher.teacher_id,
-    room_id: room1.room_id,
-    day_of_week: day,
-    lesson_num: lessonNum,
-    year: new Date().getFullYear(),
-  });
+            newSchedule.push({
+              class_id: cls.class_id,
+              subject_id: lesson.subject_id,
+              teacher_id: teacher.teacher_id,
+              room_id: room1.room_id,
+              day_of_week: day,
+              lesson_num: lessonNum,
+              year: new Date().getFullYear(),
+            });
 
-  // Подгруппа 2
-  let availableRooms2 = cabinets.filter(r => {
-    const used = (cabinetUsage[day][lessonNum]) || [];
-    return !used.includes(r.room_id);
-  });
-  if (!availableRooms2.length) availableRooms2 = [...cabinets];
-  const room2 = availableRooms2[Math.floor(Math.random() * availableRooms2.length)];
-  cabinetUsage[day][lessonNum].push(room2.room_id);
+            let availableRooms2 = cabinets.filter(r => {
+              const used = (cabinetUsage[day][lessonNum]) || [];
+              return !used.includes(r.room_id);
+            });
+            if (!availableRooms2.length) availableRooms2 = [...cabinets];
+            const room2 = availableRooms2[Math.floor(Math.random() * availableRooms2.length)];
+            cabinetUsage[day][lessonNum].push(room2.room_id);
 
-  // Можно выбрать другого учителя на подгруппу
-  let teacher2 = teachers
-    .filter(t => t.subject.toLowerCase() === lesson.subject_name.toLowerCase())
-    .find(t => t.teacher_id !== teacher.teacher_id);
-  if (!teacher2) teacher2 = teacher;
+            let teacher2 = teachers
+              .filter(t => t.subject.toLowerCase() === lesson.subject_name.toLowerCase())
+              .find(t => t.teacher_id !== teacher.teacher_id);
+            if (!teacher2) teacher2 = teacher;
 
-  newSchedule.push({
-    class_id: cls.class_id,
-    subject_id: lesson.subject_id,
-    teacher_id: teacher2.teacher_id,
-    room_id: room2.room_id,
-    day_of_week: day,
-    lesson_num: lessonNum,
-    year: new Date().getFullYear(),
-  });
+            newSchedule.push({
+              class_id: cls.class_id,
+              subject_id: lesson.subject_id,
+              teacher_id: teacher2.teacher_id,
+              room_id: room2.room_id,
+              day_of_week: day,
+              lesson_num: lessonNum,
+              year: new Date().getFullYear(),
+            });
 
-} else {
-  // Обычный кабинет для обычных уроков
-  let availableRooms = cabinets.filter(r => {
-    const used = (cabinetUsage[day][lessonNum]) || [];
-    return !used.includes(r.room_id);
-  });
-  if (!availableRooms.length) availableRooms = [...cabinets];
-  room = availableRooms[Math.floor(Math.random() * availableRooms.length)];
+          } else {
+            // Обычный урок
+            let availableRooms = cabinets.filter(r => {
+              const used = (cabinetUsage[day][lessonNum]) || [];
+              return !used.includes(r.room_id);
+            });
+            if (!availableRooms.length) availableRooms = [...cabinets];
+            room = availableRooms[Math.floor(Math.random() * availableRooms.length)];
 
-  if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
-  cabinetUsage[day][lessonNum].push(room.room_id);
+            if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
+            cabinetUsage[day][lessonNum].push(room.room_id);
 
-  newSchedule.push({
-    class_id: cls.class_id,
-    subject_id: lesson.subject_id,
-    teacher_id: teacher.teacher_id,
-    room_id: room.room_id,
-    day_of_week: day,
-    lesson_num: lessonNum,
-    year: new Date().getFullYear(),
-  });
-
+            newSchedule.push({
+              class_id: cls.class_id,
+              subject_id: lesson.subject_id,
+              teacher_id: teacher.teacher_id,
+              room_id: room.room_id,
+              day_of_week: day,
+              lesson_num: lessonNum,
+              year: new Date().getFullYear(),
+            });
           }
         }
       }
