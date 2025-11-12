@@ -7,20 +7,11 @@ import Footer from "../components/Footer";
 
 export default function ScheduleView() {
   const [schedule, setSchedule] = useState({});
-  const [cabinets, setCabinets] = useState([]); 
+  const [cabinets, setCabinets] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [currentClassIndex, setCurrentClassIndex] = useState(0);
-const fetchCabinets = async () => {
-  try {
-    const res = await fetch("/api/get-cabinets");
-    const data = await res.json();
-    if (data.success) setCabinets(data.cabinets);
-  } catch (err) {
-    console.error("Ошибка при загрузке кабинетов:", err);
-  }
-};
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   const dayNamesRu = {
@@ -31,12 +22,21 @@ const fetchCabinets = async () => {
     Friday: "Пятница",
   };
 
+  const fetchCabinets = async () => {
+    try {
+      const res = await fetch("/api/get-cabinets");
+      const data = await res.json();
+      if (data.success) setCabinets(data.cabinets);
+    } catch (err) {
+      console.error("Ошибка при загрузке кабинетов:", err);
+    }
+  };
+
   const fetchSchedule = async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/get-schedule");
       const data = await res.json();
-       console.log("schedule raw data:", data); // <-- добавь это
       if (data.success) {
         setSchedule(data.schedule);
         setTeachers(data.teachers);
@@ -66,7 +66,7 @@ const fetchCabinets = async () => {
     }
   };
 
-    const updateTeacher = async (schedule_id, teacher_id, day_of_week, lesson_num) => {
+  const updateTeacher = async (schedule_id, teacher_id, day_of_week, lesson_num) => {
     try {
       const res = await fetch("/api/update-schedule", {
         method: "POST",
@@ -84,16 +84,15 @@ const fetchCabinets = async () => {
     }
   };
 
-    const updateRoom = async (schedule_id, room, day_of_week, lesson_num) => {
+  const updateRoom = async (schedule_id, room_id, day_of_week, lesson_num) => {
     try {
       const res = await fetch("/api/update-schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schedule_id, room, day_of_week, lesson_num }),
+        body: JSON.stringify({ schedule_id, room_id, day_of_week, lesson_num }),
       });
 
       const data = await res.json();
-
       if (!data.success) {
         alert(data.error || "Ошибка при обновлении кабинета");
       } else {
@@ -104,6 +103,28 @@ const fetchCabinets = async () => {
     }
   };
 
+  const updatePosition = async (schedule_id, day_of_week, lesson_num) => {
+    try {
+      const res = await fetch("/api/update-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule_id, day_of_week, lesson_num }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert("Ошибка: " + data.error);
+      } else {
+        await fetchSchedule();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const swapLessons = async (sourceScheduleId, targetScheduleId, sourceDay, sourceNum, targetDay, targetNum) => {
+    await updatePosition(sourceScheduleId, targetDay, targetNum);
+    await updatePosition(targetScheduleId, sourceDay, sourceNum);
+  };
 
   const getInitials = (fullName) => {
     if (!fullName) return "";
@@ -128,7 +149,7 @@ const fetchCabinets = async () => {
         const maxLessons = Math.max(...Object.values(cls.days).map((day) => day.length));
         const sheetData = [];
 
-        sheetData.push(["#", ...days]);
+        sheetData.push(["#", ...days.map((d) => dayNamesRu[d])]);
 
         for (let lessonNum = 1; lessonNum <= maxLessons; lessonNum++) {
           const dayLessons = days.map(
@@ -147,8 +168,11 @@ const fetchCabinets = async () => {
                 const teacher = teachers.find((t) => t.teacher_id === lesson.teacher_id);
                 const initials = teacher ? getInitials(teacher.full_name) : "";
 
+                const cabinet = cabinets.find((c) => c.room_id === lesson.room_id);
+                const roomText = cabinet ? `${cabinet.room_number}${cabinet.room_name ? ` (${cabinet.room_name})` : ""}` : "Не назначен";
+
                 let groupLabel = lessons.length > 1 ? ` (${groupIndex + 1} подгруппа)` : "";
-                let cellText = `${lesson.subject}${groupLabel} / ${initials} / ${lesson.room || "Не назначен"}`;
+                let cellText = `${lesson.subject}${groupLabel} / ${initials} / ${roomText}`;
 
                 row.push(cellText);
               } else {
@@ -176,14 +200,13 @@ const fetchCabinets = async () => {
     XLSX.writeFile(workbook, "Расписание.xlsx");
   };
 
-useEffect(() => {
-  fetchSchedule();
-  fetchCabinets();
-}, []);
+  useEffect(() => {
+    fetchSchedule();
+    fetchCabinets();
+  }, []);
 
   if (loading) return <div>Загрузка расписания...</div>;
 
-  // Слайдер по классам
   const classesArray = Object.values(schedule)
     .filter((cls) => {
       const match = cls.class_name.match(/^(\d+)/);
@@ -252,23 +275,53 @@ useEffect(() => {
                             const fullName = teacher ? teacher.full_name : "";
                             const groupLabel = lessons.length > 1 ? ` (${idx + 1} подгруппа)` : "";
                             return (
-                              <div key={idx} className="mb-2 p-2 rounded bg-white border border-gray-200">
+                              <div 
+                                key={idx} 
+                                className="mb-2 p-2 rounded bg-white border border-gray-200"
+                                draggable={true}
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData("text/plain", JSON.stringify({
+                                    schedule_id: lesson.schedule_id,
+                                    day,
+                                    lesson_num: i + 1
+                                  }));
+                                }}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={async (e) => {
+                                  e.preventDefault();
+                                  let data;
+                                  try {
+                                    data = JSON.parse(e.dataTransfer.getData("text/plain"));
+                                  } catch (err) {
+                                    return;
+                                  }
+                                  const sourceScheduleId = data.schedule_id;
+                                  const sourceDay = data.day;
+                                  const sourceNum = data.lesson_num;
+                                  const targetScheduleId = lesson.schedule_id;
+                                  const targetDay = day;
+                                  const targetNum = i + 1;
+                                  if (sourceScheduleId === targetScheduleId) return;
+                                  await swapLessons(sourceScheduleId, targetScheduleId, sourceDay, sourceNum, targetDay, targetNum);
+                                }}
+                              >
                                 <div className="font-semibold">{lesson.subject}{groupLabel}</div>
                                 <div className="text-sm mt-1">{fullName}</div>
+
                                 <select
-  className="w-full border rounded p-1 text-sm mt-1"
-  value={lesson.room_id || ""}
-  onChange={(e) =>
-    updateRoom(lesson.schedule_id, e.target.value, day, i + 1)
-  }
->
-  <option value="">Не выбрано</option>
-  {cabinets.map((c) => (
-    <option key={c.room_id} value={c.room_id}>
-      {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
-    </option>
-  ))}
-</select>
+                                  className="w-full border rounded p-1 text-sm mt-1"
+                                  value={lesson.room_id || ""}
+                                  onChange={(e) =>
+                                    updateRoom(lesson.schedule_id, e.target.value, day, i + 1)
+                                  }
+                                >
+                                  <option value="">Не выбрано</option>
+                                  {cabinets.map((c) => (
+                                    <option key={c.room_id} value={c.room_id}>
+                                      {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
+                                    </option>
+                                  ))}
+                                </select>
 
                                 <select
                                   className="w-full border rounded p-1 text-sm mt-1"

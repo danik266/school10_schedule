@@ -15,6 +15,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [schedule, setSchedule] = useState({});
   const [teachers, setTeachers] = useState([]);
+  const [cabinets, setCabinets] = useState([]); // 🆕 добавлено
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { lang } = useLanguage();
@@ -65,6 +66,7 @@ export default function Home() {
     Friday: "Пятница",
   };
 
+  // 🆕 Загрузка расписания и кабинетов
   useEffect(() => {
     const fetchSchedule = async () => {
       try {
@@ -80,7 +82,19 @@ export default function Home() {
         setLoading(false);
       }
     };
+
+    const fetchCabinets = async () => {
+      try {
+        const res = await fetch("/api/get-cabinets");
+        const data = await res.json();
+        if (data.success) setCabinets(data.cabinets);
+      } catch (err) {
+        console.error("Ошибка загрузки кабинетов:", err);
+      }
+    };
+
     fetchSchedule();
+    fetchCabinets();
   }, []);
 
   // ---------- Список классов ----------
@@ -218,32 +232,53 @@ export default function Home() {
                                     —
                                   </td>
                                 );
+
                               return (
                                 <td key={day} className="border border-gray-300 p-2">
-  {lessons.length > 0 ? (
-lessons.map((lesson, idx) => {
-  const teacherObj = teachers.find(
-    (t) => t.teacher_id.toString() === lesson.teacher_id?.toString()
-  );
+                                  {lessons.map((lesson, idx) => {
+                                    const teacherObj = teachers.find(
+                                      (t) =>
+                                        t.teacher_id.toString() ===
+                                        lesson.teacher_id?.toString()
+                                    );
 
-  const teacherName = teacherObj ? teacherObj.full_name : "Не назначен";
-  const room = teacherObj?.classroom ? teacherObj.classroom : "Кабинет не назначен";
+                                    const teacherName = teacherObj
+                                      ? teacherObj.full_name
+                                      : "Не назначен";
 
-  return (
-    <div key={idx} className="mb-2 p-2 rounded bg-white border border-gray-200">
-      <div className="font-semibold">
-        {lesson.subject}
-        {lessons.length > 1 ? ` (${idx + 1} подгруппа)` : ""}
-      </div>
-      <div className="text-xs text-gray-600 mt-1">{teacherName}</div>
-      <div className="text-xs text-gray-500 mt-1 italic">{room}</div>
-    </div>
-  );
-})
-  ) : (
-    <div className="text-center text-gray-400">—</div>
-  )}
-</td>
+                                    // 🆕 кабинет теперь из lesson.room_id → cabinets
+                                    const roomObj =
+                                      lesson.room ||
+                                      cabinets.find((c) => c.room_id === lesson.room_id);
+                                    const room = roomObj
+                                      ? `${roomObj.room_number}${
+                                          roomObj.room_name
+                                            ? ` (${roomObj.room_name})`
+                                            : ""
+                                        }`
+                                      : "Кабинет не назначен";
+
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className="mb-2 p-2 rounded bg-white border border-gray-200"
+                                      >
+                                        <div className="font-semibold">
+                                          {lesson.subject}
+                                          {lessons.length > 1
+                                            ? ` (${idx + 1} подгруппа)`
+                                            : ""}
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-1">
+                                          {teacherName}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1 italic">
+                                          {room}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </td>
                               );
                             })}
                           </tr>

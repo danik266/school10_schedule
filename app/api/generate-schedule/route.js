@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client"; 
+import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -12,8 +12,10 @@ const peTeachers = [
 
 export async function POST(req) {
   try {
+    // Очищаем старое расписание
     await prisma.schedule.deleteMany({});
 
+    // Загружаем классы, учителей и кабинеты
     const classes = await prisma.classes.findMany({
       include: { study_plan: { include: { subjects: true } } },
     });
@@ -24,6 +26,7 @@ export async function POST(req) {
     const cabinetUsage = {};
     for (const day of days) cabinetUsage[day] = {};
 
+    // Генерация расписания
     for (const cls of classes) {
       const studentsCount = Number(cls.students_count) || 0;
       const splitSubjects =
@@ -46,6 +49,7 @@ export async function POST(req) {
       for (let day of days) dayLoad[day] = [];
       let dayIndex = 0;
 
+      // распределяем предметы по дням
       for (const lesson of lessons) {
         let placed = false;
         let tries = 0;
@@ -68,12 +72,14 @@ export async function POST(req) {
         }
       }
 
+      // формируем расписание по дням
       for (let day of days) {
         const dayLessons = dayLoad[day];
         for (let i = 0; i < dayLessons.length; i++) {
           const lesson = dayLessons[i];
           const lessonNum = i + 1;
 
+          // выбираем учителя
           let teacher = teachers.find(
             (t) => t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
           );
@@ -85,15 +91,16 @@ export async function POST(req) {
             studentsCount > 24 &&
             splitSubjects.some((s) => normalizedLesson.includes(s));
 
-          let room;
-          const isPE = normalizedLesson.includes("дене шыныктыру") || peTeachers.includes(teacher.full_name);
+          // ------------- ФИЗКУЛЬТУРА -------------
+          const isPE =
+            normalizedLesson.includes("дене шыныктыру") ||
+            peTeachers.includes(teacher.full_name);
 
           if (isPE) {
-            // Автоматически спортзал
-            const gyms = cabinets.filter(c =>
+            const gyms = cabinets.filter((c) =>
               (c.room_name || "").toLowerCase().includes("спортзал")
             );
-            room = gyms.length ? gyms[0] : cabinets[0];
+            const room = gyms.length ? gyms[0] : cabinets[0];
 
             if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
             cabinetUsage[day][lessonNum].push(room.room_id);
@@ -107,14 +114,19 @@ export async function POST(req) {
               lesson_num: lessonNum,
               year: new Date().getFullYear(),
             });
-          } else if (shouldSplit) {
-            // Подгруппы для больших классов (как у тебя)
-            let availableRooms1 = cabinets.filter(r => {
-              const used = (cabinetUsage[day][lessonNum]) || [];
+
+            continue; // переходим к следующему уроку
+          }
+
+          // ------------- ПОДГРУППЫ -------------
+          if (shouldSplit) {
+            let availableRooms1 = cabinets.filter((r) => {
+              const used = cabinetUsage[day][lessonNum] || [];
               return !used.includes(r.room_id);
             });
             if (!availableRooms1.length) availableRooms1 = [...cabinets];
-            const room1 = availableRooms1[Math.floor(Math.random() * availableRooms1.length)];
+            const room1 =
+              availableRooms1[Math.floor(Math.random() * availableRooms1.length)];
             if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
             cabinetUsage[day][lessonNum].push(room1.room_id);
 
@@ -128,17 +140,21 @@ export async function POST(req) {
               year: new Date().getFullYear(),
             });
 
-            let availableRooms2 = cabinets.filter(r => {
-              const used = (cabinetUsage[day][lessonNum]) || [];
+            let availableRooms2 = cabinets.filter((r) => {
+              const used = cabinetUsage[day][lessonNum] || [];
               return !used.includes(r.room_id);
             });
             if (!availableRooms2.length) availableRooms2 = [...cabinets];
-            const room2 = availableRooms2[Math.floor(Math.random() * availableRooms2.length)];
+            const room2 =
+              availableRooms2[Math.floor(Math.random() * availableRooms2.length)];
             cabinetUsage[day][lessonNum].push(room2.room_id);
 
             let teacher2 = teachers
-              .filter(t => t.subject.toLowerCase() === lesson.subject_name.toLowerCase())
-              .find(t => t.teacher_id !== teacher.teacher_id);
+              .filter(
+                (t) =>
+                  t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
+              )
+              .find((t) => t.teacher_id !== teacher.teacher_id);
             if (!teacher2) teacher2 = teacher;
 
             newSchedule.push({
@@ -151,28 +167,62 @@ export async function POST(req) {
               year: new Date().getFullYear(),
             });
 
+            continue;
+          }
+
+          // ------------- ОБЫЧНЫЙ УРОК -------------
+          let room;
+
+          if (teacher.classroom) {
+            // есть кабинет у учителя
+            const teacherRoom = cabinets.find(
+              (c) =>
+                c.room_number.toLowerCase() ===
+                teacher.classroom.toLowerCase()
+            );
+            if (teacherRoom) {
+              room = teacherRoom;
+            } else {
+              console.warn(
+                `Кабинет ${teacher.classroom} учителя ${teacher.full_name} не найден. Используется случайный.`
+              );
+              let availableRooms = cabinets.filter((r) => {
+                const used = cabinetUsage[day][lessonNum] || [];
+                return !used.includes(r.room_id);
+              });
+              if (!availableRooms.length) availableRooms = [...cabinets];
+              room =
+                availableRooms[Math.floor(Math.random() * availableRooms.length)];
+            }
           } else {
-            // Обычный урок
-            let availableRooms = cabinets.filter(r => {
-              const used = (cabinetUsage[day][lessonNum]) || [];
+            // нет кабинета у учителя → выбираем случайный
+            let availableRooms = cabinets.filter((r) => {
+              const used = cabinetUsage[day][lessonNum] || [];
               return !used.includes(r.room_id);
             });
             if (!availableRooms.length) availableRooms = [...cabinets];
-            room = availableRooms[Math.floor(Math.random() * availableRooms.length)];
+            room =
+              availableRooms[Math.floor(Math.random() * availableRooms.length)];
 
-            if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
-            cabinetUsage[day][lessonNum].push(room.room_id);
-
-            newSchedule.push({
-              class_id: cls.class_id,
-              subject_id: lesson.subject_id,
-              teacher_id: teacher.teacher_id,
-              room_id: room.room_id,
-              day_of_week: day,
-              lesson_num: lessonNum,
-              year: new Date().getFullYear(),
+            // 🔹 При желании можно "запомнить" кабинет за учителем
+            await prisma.teachers.update({
+              where: { teacher_id: teacher.teacher_id },
+              data: { classroom: room.room_number },
             });
           }
+
+          if (!cabinetUsage[day][lessonNum]) cabinetUsage[day][lessonNum] = [];
+          cabinetUsage[day][lessonNum].push(room.room_id);
+
+          newSchedule.push({
+            class_id: cls.class_id,
+            subject_id: lesson.subject_id,
+            teacher_id: teacher.teacher_id,
+            room_id: room.room_id,
+            day_of_week: day,
+            lesson_num: lessonNum,
+            year: new Date().getFullYear(),
+          });
         }
       }
     }
@@ -181,10 +231,15 @@ export async function POST(req) {
       await prisma.schedule.createMany({ data: newSchedule });
     }
 
-    return new Response(JSON.stringify({ success: true, count: newSchedule.length }), { status: 200 });
-
+    return new Response(
+      JSON.stringify({ success: true, count: newSchedule.length }),
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Ошибка генерации расписания:", error);
-    return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500 });
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500 }
+    );
   }
 }

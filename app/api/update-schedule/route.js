@@ -3,14 +3,14 @@ const prisma = new PrismaClient();
 
 export async function POST(req) {
   try {
-    const { schedule_id, teacher_id, room, day_of_week, lesson_num } = await req.json();
-
+    const { schedule_id, teacher_id, room_id, day_of_week, lesson_num } = await req.json();
     const scheduleId = Number(schedule_id);
     const updates = {};
 
-    // Обновляем преподавателя
-    if (teacher_id !== undefined) {
+    // Проверка преподавателя
+    if (teacher_id !== undefined && teacher_id !== "") {
       const teacherId = Number(teacher_id);
+
       const conflict = await prisma.schedule.findFirst({
         where: {
           teacher_id: teacherId,
@@ -22,23 +22,32 @@ export async function POST(req) {
       });
 
       if (conflict) {
-        return new Response(JSON.stringify({
-          success: false,
-          conflict: {
-            class_name: conflict.classes.class_name,
-            teacher_name: conflict.teachers.full_name,
-          },
-        }), { status: 400 });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            conflict: {
+              class_name: conflict.classes.class_name,
+              teacher_name: conflict.teachers.full_name,
+            },
+          }),
+          { status: 400 }
+        );
       }
 
       updates.teacher_id = teacherId;
     }
 
-    // Обновляем кабинет
-    if (room !== undefined) {
-      const cabinet = await prisma.cabinets.findUnique({ where: { room_id: Number(room) } });
+    // Проверка кабинета
+    if (room_id !== undefined && room_id !== "") {
+      const cabinet = await prisma.cabinets.findUnique({
+        where: { room_id: Number(room_id) },
+      });
+
       if (!cabinet) {
-        return new Response(JSON.stringify({ success: false, error: "Кабинет не найден" }), { status: 400 });
+        return new Response(
+          JSON.stringify({ success: false, error: "Кабинет не найден" }),
+          { status: 400 }
+        );
       }
 
       const isGym = (cabinet.room_name || "").toLowerCase().includes("спортзал");
@@ -55,10 +64,13 @@ export async function POST(req) {
         });
 
         if (roomConflict) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: `Кабинет "${cabinet.room_number}" уже занят у класса ${roomConflict.classes.class_name} на этом уроке`,
-          }), { status: 400 });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Кабинет "${cabinet.room_number}" уже занят у класса ${roomConflict.classes.class_name} на этом уроке`,
+            }),
+            { status: 400 }
+          );
         }
       }
 
@@ -66,7 +78,10 @@ export async function POST(req) {
     }
 
     if (Object.keys(updates).length === 0) {
-      return new Response(JSON.stringify({ success: false, error: "Нет данных для обновления" }), { status: 400 });
+      return new Response(
+        JSON.stringify({ success: false, error: "Нет данных для обновления" }),
+        { status: 400 }
+      );
     }
 
     await prisma.schedule.update({
@@ -75,9 +90,11 @@ export async function POST(req) {
     });
 
     return new Response(JSON.stringify({ success: true }), { status: 200 });
-
   } catch (error) {
     console.error("Ошибка обновления:", error);
-    return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500 });
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 500 }
+    );
   }
 }
