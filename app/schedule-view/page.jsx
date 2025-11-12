@@ -74,11 +74,12 @@ export default function ScheduleView() {
         body: JSON.stringify({ schedule_id, teacher_id, day_of_week, lesson_num }),
       });
       const data = await res.json();
-      if (!data.success) {
-        alert("Ошибка: " + data.error);
-      } else {
-        await fetchSchedule();
-      }
+if (!data.success) {
+  alert("Ошибка: " + (data.message || data.error || "Неизвестная ошибка"));
+} else {
+  await fetchSchedule();
+}
+
     } catch (err) {
       console.error(err);
     }
