@@ -292,7 +292,6 @@ export default function Home() {
           </Slider>
         )}
       </section>
-
       <Footer />
     </div>
   );

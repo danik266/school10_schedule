@@ -224,134 +224,149 @@ if (!data.success) {
 
   return (
     <>
-      <Header />
-      <div className="p-4 space-y-4">
-        <div className="flex items-center gap-4 mb-4">
-          <button onClick={prevClass} disabled={currentClassIndex === 0} className="px-4 py-2 bg-gray-300 rounded">←</button>
-          <span className="font-bold text-lg">{currentClass?.class_name || "Нет данных"}</span>
-          <button onClick={nextClass} disabled={currentClassIndex === classesArray.length - 1} className="px-4 py-2 bg-gray-300 rounded">→</button>
-        </div>
+      <div className="flex flex-col min-h-screen">
+  <Header />
+  
+  <main className="flex-1 p-4 space-y-4">
+    <div className="flex items-center gap-4 mb-4">
+      <button 
+        onClick={prevClass} 
+        disabled={currentClassIndex === 0} 
+        className="px-4 py-2 bg-gray-300 rounded"
+      >
+        ←
+      </button>
+      <span className="font-bold text-lg">{currentClass?.class_name || "Нет данных"}</span>
+      <button 
+        onClick={nextClass} 
+        disabled={currentClassIndex === classesArray.length - 1} 
+        className="px-4 py-2 bg-gray-300 rounded"
+      >
+        →
+      </button>
+    </div>
 
-        <div className="flex gap-4 mb-4">
-          <button
-            onClick={generateSchedule}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            disabled={generating}
-          >
-            {generating ? "Генерация..." : "Сгенерировать расписание"}
-          </button>
+    <div className="flex gap-4 mb-4">
+      <button
+        onClick={generateSchedule}
+        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        disabled={generating}
+      >
+        {generating ? "Генерация..." : "Сгенерировать расписание"}
+      </button>
 
-          <button
-            onClick={exportToExcel}
-            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            Скачать Excel
-          </button>
-        </div>
+      <button
+        onClick={exportToExcel}
+        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+      >
+        Скачать Excel
+      </button>
+    </div>
 
-        {currentClass && (
-          <div className="border p-4 rounded shadow overflow-x-auto">
-            <table className="min-w-full border-collapse border border-gray-300">
-              <thead>
-                <tr>
-                  <th className="border border-gray-300 p-2">#</th>
-                  {days.map((day) => (
-                    <th key={day} className="border border-gray-300 p-2">{dayNamesRu[day]}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: Math.max(...Object.values(currentClass.days).map(day => day.length)) }).map((_, i) => (
-                  <tr key={i}>
-                    <td className="border border-gray-300 p-2 text-center">{i + 1}</td>
-                    {days.map((day) => {
-                      const lessons = currentClass.days[day]?.filter((l) => l.lesson_num === i + 1) || [];
-                      if (!lessons.length)
-                        return <td key={day} className="border border-gray-300 p-2 text-center text-gray-400">—</td>;
+    {currentClass && (
+      <div className="border p-4 rounded shadow overflow-x-auto">
+        <table className="min-w-full border-collapse border border-gray-300">
+          <thead>
+            <tr>
+              <th className="border border-gray-300 p-2">#</th>
+              {days.map((day) => (
+                <th key={day} className="border border-gray-300 p-2">{dayNamesRu[day]}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: Math.max(...Object.values(currentClass.days).map(day => day.length)) }).map((_, i) => (
+              <tr key={i}>
+                <td className="border border-gray-300 p-2 text-center">{i + 1}</td>
+                {days.map((day) => {
+                  const lessons = currentClass.days[day]?.filter((l) => l.lesson_num === i + 1) || [];
+                  if (!lessons.length)
+                    return <td key={day} className="border border-gray-300 p-2 text-center text-gray-400">—</td>;
 
-                      return (
-                        <td key={day} className="border border-gray-300 p-2">
-                          {lessons.map((lesson, idx) => {
-                            const teacher = teachers.find((t) => t.teacher_id === lesson.teacher_id);
-                            const fullName = teacher ? teacher.full_name : "";
-                            const groupLabel = lessons.length > 1 ? ` (${idx + 1} подгруппа)` : "";
-                            return (
-                              <div 
-                                key={idx} 
-                                className="mb-2 p-2 rounded bg-white border border-gray-200"
-                                draggable={true}
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData("text/plain", JSON.stringify({
-                                    schedule_id: lesson.schedule_id,
-                                    day,
-                                    lesson_num: i + 1
-                                  }));
-                                }}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={async (e) => {
-                                  e.preventDefault();
-                                  let data;
-                                  try {
-                                    data = JSON.parse(e.dataTransfer.getData("text/plain"));
-                                  } catch (err) {
-                                    return;
-                                  }
-                                  const sourceScheduleId = data.schedule_id;
-                                  const sourceDay = data.day;
-                                  const sourceNum = data.lesson_num;
-                                  const targetScheduleId = lesson.schedule_id;
-                                  const targetDay = day;
-                                  const targetNum = i + 1;
-                                  if (sourceScheduleId === targetScheduleId) return;
-                                  await swapLessons(sourceScheduleId, targetScheduleId, sourceDay, sourceNum, targetDay, targetNum);
-                                }}
-                              >
-                                <div className="font-semibold">{lesson.subject}{groupLabel}</div>
-                                <div className="text-sm mt-1">{fullName}</div>
+                  return (
+                    <td key={day} className="border border-gray-300 p-2">
+                      {lessons.map((lesson, idx) => {
+                        const teacher = teachers.find((t) => t.teacher_id === lesson.teacher_id);
+                        const fullName = teacher ? teacher.full_name : "";
+                        const groupLabel = lessons.length > 1 ? ` (${idx + 1} подгруппа)` : "";
+                        return (
+                          <div 
+                            key={idx} 
+                            className="mb-2 p-2 rounded bg-white border border-gray-200"
+                            draggable={true}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", JSON.stringify({
+                                schedule_id: lesson.schedule_id,
+                                day,
+                                lesson_num: i + 1
+                              }));
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={async (e) => {
+                              e.preventDefault();
+                              let data;
+                              try {
+                                data = JSON.parse(e.dataTransfer.getData("text/plain"));
+                              } catch (err) {
+                                return;
+                              }
+                              const sourceScheduleId = data.schedule_id;
+                              const sourceDay = data.day;
+                              const sourceNum = data.lesson_num;
+                              const targetScheduleId = lesson.schedule_id;
+                              const targetDay = day;
+                              const targetNum = i + 1;
+                              if (sourceScheduleId === targetScheduleId) return;
+                              await swapLessons(sourceScheduleId, targetScheduleId, sourceDay, sourceNum, targetDay, targetNum);
+                            }}
+                          >
+                            <div className="font-semibold">{lesson.subject}{groupLabel}</div>
+                            <div className="text-sm mt-1">{fullName}</div>
 
-                                <select
-                                  className="w-full border rounded p-1 text-sm mt-1"
-                                  value={lesson.room_id || ""}
-                                  onChange={(e) =>
-                                    updateRoom(lesson.schedule_id, e.target.value, day, i + 1)
-                                  }
-                                >
-                                  <option value="">Не выбрано</option>
-                                  {cabinets.map((c) => (
-                                    <option key={c.room_id} value={c.room_id}>
-                                      {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
-                                    </option>
-                                  ))}
-                                </select>
+                            <select
+                              className="w-full border rounded p-1 text-sm mt-1"
+                              value={lesson.room_id || ""}
+                              onChange={(e) =>
+                                updateRoom(lesson.schedule_id, e.target.value, day, i + 1)
+                              }
+                            >
+                              <option value="">Не выбрано</option>
+                              {cabinets.map((c) => (
+                                <option key={c.room_id} value={c.room_id}>
+                                  {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
+                                </option>
+                              ))}
+                            </select>
 
-                                <select
-                                  className="w-full border rounded p-1 text-sm mt-1"
-                                  value={lesson.teacher_id || ""}
-                                  onChange={(e) =>
-                                    updateTeacher(lesson.schedule_id, e.target.value, day, i + 1)
-                                  }
-                                >
-                                  <option value="">Не выбрано</option>
-                                  {teachers.map((t) => (
-                                    <option key={t.teacher_id} value={t.teacher_id}>
-                                      {t.full_name} ({t.subject})
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                            <select
+                              className="w-full border rounded p-1 text-sm mt-1"
+                              value={lesson.teacher_id || ""}
+                              onChange={(e) =>
+                                updateTeacher(lesson.schedule_id, e.target.value, day, i + 1)
+                              }
+                            >
+                              <option value="">Не выбрано</option>
+                              {teachers.map((t) => (
+                                <option key={t.teacher_id} value={t.teacher_id}>
+                                  {t.full_name} ({t.subject})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <Footer />
+    )}
+  </main>
+  <Footer />
+</div>
     </>
   );
 }
