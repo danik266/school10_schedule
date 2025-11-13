@@ -3,7 +3,7 @@ const prisma = new PrismaClient();
 
 export async function POST(req) {
   try {
-    const { schedule_id, day_of_week, lesson_num } = await req.json();
+    const { schedule_id, day_of_week, lesson_num, teacher_id, room_id } = await req.json();
 
     if (!schedule_id || !day_of_week || !lesson_num) {
       return new Response(
@@ -12,7 +12,6 @@ export async function POST(req) {
       );
     }
 
-    // Найдём урок по ID
     const mainLesson = await prisma.schedule.findUnique({
       where: { schedule_id: Number(schedule_id) },
     });
@@ -24,7 +23,7 @@ export async function POST(req) {
       );
     }
 
-    // Если урок содержит "подгруппа" в названии предмета, найдём вторую подгруппу
+    // Ищем все подгруппы одного урока
     const relatedLessons = await prisma.schedule.findMany({
       where: {
         class_id: mainLesson.class_id,
@@ -34,12 +33,17 @@ export async function POST(req) {
       },
     });
 
-    // Обновляем все связанные уроки (подгруппы)
+    // Обновляем все подгруппы сразу
     await Promise.all(
       relatedLessons.map(l =>
         prisma.schedule.update({
           where: { schedule_id: l.schedule_id },
-          data: { day_of_week, lesson_num },
+          data: {
+            day_of_week,
+            lesson_num,
+            teacher_id: teacher_id ? Number(teacher_id) : l.teacher_id,
+            room_id: room_id ? Number(room_id) : l.room_id,
+          },
         })
       )
     );
