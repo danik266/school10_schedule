@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-
+import Cookies from "js-cookie";
 export default function ScheduleView() {
   const [schedule, setSchedule] = useState({});
   const [cabinets, setCabinets] = useState([]);
@@ -31,7 +31,27 @@ export default function ScheduleView() {
       console.error("Ошибка при загрузке кабинетов:", err);
     }
   };
+useEffect(() => {
+  const cookieLifetime = 24 * 60 * 60 * 1000; // 1 минута
 
+  const timer = setTimeout(async () => {
+    try {
+      await fetch("/api/logout", { method: "POST" });
+      console.log("✅ Кука token удалена через 1 минуту");
+      // перенаправляем на страницу логина
+      window.location.href = "/";
+    } catch (err) {
+      console.error("Ошибка при удалении куки:", err);
+    }
+  }, cookieLifetime);
+
+  return () => clearTimeout(timer);
+}, []);
+const isTeacherBusy = (teacher_id, day, lesson_num) => {
+  return Object.values(schedule).some(cls =>
+    cls.days[day]?.some(lesson => lesson.lesson_num === lesson_num && lesson.teacher_id === teacher_id)
+  );
+};
   const fetchSchedule = async () => {
     setLoading(true);
     try {
@@ -119,7 +139,11 @@ export default function ScheduleView() {
       console.error(err);
     }
   };
-
+const isRoomBusy = (room_id, day, lesson_num) => {
+  return Object.values(schedule).some(cls =>
+    cls.days[day]?.some(lesson => lesson.lesson_num === lesson_num && lesson.room_id === room_id)
+  );
+};
   const swapLessons = async (source, target) => {
     const { schedule_id: sId, day: sDay, lesson_num: sNum } = source;
     const { schedule_id: tId, day: tDay, lesson_num: tNum } = target;
@@ -331,7 +355,8 @@ export default function ScheduleView() {
                                   >
                                     <option value="">Не выбрано</option>
                                     {cabinets.map((c) => (
-                                      <option key={c.room_id} value={c.room_id}>
+                                      <option key={c.room_id} value={c.room_id} 
+                                      disabled={isRoomBusy(c.room_id, day, i+1) && c.room_id !== lesson.room_id}>
                                         {c.room_number} {c.room_name ? `(${c.room_name})` : ""}
                                       </option>
                                     ))}
@@ -345,11 +370,18 @@ export default function ScheduleView() {
                                     }
                                   >
                                     <option value="">Не выбрано</option>
-                                    {teachers.map((t) => (
-                                      <option key={t.teacher_id} value={t.teacher_id}>
-                                        {t.full_name} ({t.subject})
-                                      </option>
-                                    ))}
+                                    {teachers.map((t) => {
+  const busy = isTeacherBusy(t.teacher_id, day, i + 1);
+  return (
+    <option 
+      key={t.teacher_id} 
+      value={t.teacher_id} 
+      disabled={busy && t.teacher_id !== lesson.teacher_id}
+    >
+      {t.full_name} ({t.subject}) {busy ? "(занят)" : ""}
+    </option>
+  );
+})}
                                   </select>
                                 </div>
                               );

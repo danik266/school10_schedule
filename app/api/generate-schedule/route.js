@@ -32,18 +32,24 @@ export async function POST(req) {
       const splitSubjects =
         cls.class_type?.split(/[-,]/).map((s) => s.trim().toLowerCase()) || [];
 
-      let lessons = [];
-      cls.study_plan.forEach((sp) => {
-        if (!sp.subjects) return;
-        const hours = Math.ceil(Number(sp.hours_per_week));
-        for (let i = 0; i < hours; i++) {
-          lessons.push({
-            subject_id: sp.subject_id,
-            subject_name: sp.subjects.name,
-          });
-        }
-      });
-      if (!lessons.length) continue;
+      // создаём массив уроков
+let lessons = [];
+cls.study_plan.forEach((sp) => {
+  if (!sp.subjects) return;
+  const hours = Math.ceil(Number(sp.hours_per_week));
+  for (let i = 0; i < hours; i++) {
+    lessons.push({
+      subject_id: sp.subject_id,
+      subject_name: sp.subjects.name,
+    });
+  }
+});
+
+// 🔹 перемешиваем уроки случайным образом
+lessons = lessons.sort(() => Math.random() - 0.5);
+
+if (!lessons.length) continue;
+
 
       const dayLoad = {};
       for (let day of days) dayLoad[day] = [];
@@ -79,12 +85,29 @@ export async function POST(req) {
           const lesson = dayLessons[i];
           const lessonNum = i + 1;
 
-          // выбираем учителя
-          let teacher = teachers.find(
-            (t) => t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
-          );
-          if (!teacher)
-            teacher = teachers[Math.floor(Math.random() * teachers.length)];
+// получаем всех учителей, которые ведут этот предмет
+let possibleTeachers = teachers.filter(
+  (t) => t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
+);
+
+// фильтруем тех, кто свободен в этот день и урок
+possibleTeachers = possibleTeachers.filter((t) => {
+  return !newSchedule.some(
+    (s) => s.teacher_id === t.teacher_id && s.day_of_week === day && s.lesson_num === lessonNum
+  );
+});
+
+// выбираем случайного свободного учителя, если есть
+let teacher;
+if (possibleTeachers.length > 0) {
+  teacher = possibleTeachers[Math.floor(Math.random() * possibleTeachers.length)];
+} else {
+  // если нет свободных, выбираем любого преподавателя этого предмета
+  teacher = teachers.find(
+    (t) => t.subject.toLowerCase() === lesson.subject_name.toLowerCase()
+  ) || teachers[Math.floor(Math.random() * teachers.length)];
+}
+
 
           const normalizedLesson = lesson.subject_name.trim().toLowerCase();
           const shouldSplit =
