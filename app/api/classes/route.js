@@ -7,6 +7,7 @@ export async function GET() {
       class_id: true,
       class_name: true,
       students_count: true,
+      subject_id: selectedSubjectId,
     },
   });
 
