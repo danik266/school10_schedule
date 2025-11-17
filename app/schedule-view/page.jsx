@@ -389,7 +389,7 @@ export default function ScheduleView() {
           <button
             onClick={prevClass}
             disabled={currentClassIndex === 0}
-            className="px-4 py-2 bg-[#0a1c3a] text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 bg-[#0a1c3a] text-white rounded hover:bg-blue-700"
           >
             ←
           </button>
