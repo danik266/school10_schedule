@@ -24,15 +24,59 @@ export default function ScheduleView() {
     Thursday: "Четверг",
     Friday: "Пятница",
   };
+const [modalOpen, setModalOpen] = useState(false);
+const [pendingAction, setPendingAction] = useState(null); 
+// { fromCell, toCell, lessonA, lessonB }
+
+function onDrop(lessonA, fromCell, toCell) {
+  const target = schedule[toCell];
+
+  // 🟦 1. Если ячейка пустая — просто переносим
+  if (!target || target.length === 0) {
+    moveLesson(lessonA, fromCell, toCell);
+    return;
+  }
+
+  // 🟩 2. Если в ячейке один урок — спрашиваем
+  if (target.length === 1) {
+    setPendingAction({ fromCell, toCell, lessonA, lessonB: target[0] });
+    setModalOpen(true);
+    return;
+  }
+
+  // 🟨 3. Если 2 подгруппы — показываем другое окно (если нужно)
+  showSubgroupOptions(lessonA, target);
+}
+function handleSwap() {
+  const { fromCell, toCell, lessonA, lessonB } = pendingAction;
+
+  moveLesson(lessonA, fromCell, toCell);
+  moveLesson(lessonB, toCell, fromCell);
+}
+
+async function handleGroup() {
+  const { moving, targetGroup } = pendingAction;
+
+  // не более 2 подгрупп
+  if (targetGroup.length >= 2) return;
+
+  await updatePosition(moving.schedule_id, pendingAction.toCell.day, pendingAction.toCell.num);
+
+  setModalOpen(false);
+  await fetchSchedule();
+}
+
 
   // Авто-выход через 1 минуту
   useEffect(() => {
-    const cookieLifetime = 60 * 1000; // 1 минута
+    const cookieLifetime = 60 * 60 * 24 * 1000; 
+// 24 часа
+ 
 
     const timer = setTimeout(async () => {
       try {
         await fetch("/api/logout", { method: "POST" });
-        console.log("Кука token удалена через 1 минуту");
+        console.log("Кука token удалена через 24 часа");
         window.location.href = "/";
       } catch (err) {
         console.error("Ошибка при удалении куки:", err);
@@ -255,16 +299,6 @@ export default function ScheduleView() {
               });
             }
 
-            if ([...classTypes][0] !== "special") {
-              newConflicts.push({
-                type: "subgroup_not_special",
-                className,
-                day,
-                lessonNum,
-                message: `В классе ${className} на ${day} урок #${lessonNum}: подгруппы только для спецпредметов.`,
-              });
-            }
-
             const t1 = group[0].teacher_id;
             const t2 = group[1].teacher_id;
             if (t1 === t2) {
@@ -367,6 +401,56 @@ export default function ScheduleView() {
   const prevClass = () => setCurrentClassIndex((prev) => Math.max(prev - 1, 0));
   const nextClass = () => setCurrentClassIndex((prev) => Math.min(prev + 1, classesArray.length - 1));
 
+    function SwapOrGroupModal({ open, onClose, onSwap, onGroup }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+      <div className="bg-white p-4 rounded shadow-md w-80">
+        <h3 className="text-lg font-bold mb-4">Выберите действие</h3>
+
+        <button
+          className="w-full bg-blue-500 text-white p-2 rounded mb-2"
+          onClick={() => { onSwap(); onClose(); }}
+        >
+          Поменять местами
+        </button>
+
+        <button
+          className="w-full bg-green-500 text-white p-2 rounded mb-2"
+          onClick={() => { onGroup(); onClose(); }}
+        >
+          Объединить в подгруппы
+        </button>
+
+        <button
+          className="w-full bg-gray-300 p-2 rounded"
+          onClick={onClose}
+        >
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+async function handleFullSwap() {
+  const { moving, targetGroup } = pendingAction;
+
+  const { schedule_id, day, lesson_num } = moving;
+
+  // 1. Установить одиночный урок на место подгрупп
+  await updatePosition(schedule_id, pendingAction.toCell.day, pendingAction.toCell.num);
+
+  // 2. Обе подгруппы двинуть в старую ячейку одиночного урока
+  for (const l of targetGroup) {
+    await updatePosition(l.schedule_id, day, lesson_num);
+  }
+
+  setModalOpen(false);
+  await fetchSchedule();
+}
+
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
@@ -446,25 +530,94 @@ export default function ScheduleView() {
                           className="border border-gray-300 p-2 relative"
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={async (e) => {
-                            e.preventDefault();
-                            let data;
-                            try {
-                              data = JSON.parse(e.dataTransfer.getData("text/plain"));
-                            } catch (err) {
-                              return;
-                            }
+  e.preventDefault();
 
-                            const targetDay = day;
-                            const targetLessonNum = i + 1;
+  let data;
+  try {
+    data = JSON.parse(e.dataTransfer.getData("text/plain"));
+  } catch (err) {
+    return;
+  }
 
-                            if (data.type === "group") {
-                              for (const item of data.items) {
-                                await updatePosition(item.schedule_id, targetDay, targetLessonNum);
-                              }
-                            } else {
-                              await updatePosition(data.schedule_id, targetDay, targetLessonNum);
-                            }
-                          }}
+  const targetDay = day;
+  const targetLessonNum = i + 1;
+
+  // целевые уроки в этой ячейке
+  const targetLessons = currentClass.days[targetDay]
+    ?.filter(l => l.lesson_num === targetLessonNum) || [];
+
+  const movingCount = data.type === "group" ? data.items.length : 1;
+
+  // 1) если пустая — просто переносим (или переносим группу)
+  if (targetLessons.length === 0) {
+    if (data.type === "group") {
+      for (const item of data.items) {
+        await updatePosition(item.schedule_id, targetDay, targetLessonNum);
+      }
+    } else {
+      await updatePosition(data.schedule_id, targetDay, targetLessonNum);
+    }
+    return;
+  }
+
+  // 2) если в цели одна подгруппа и мы тащим одиночный урок -> делать swap (поменять местами)
+  if (targetLessons.length === 1 && data.type !== "group") {
+    const targetLesson = targetLessons[0];
+
+    // если перетаскиваем на тот же самый урок — ничего не делаем
+    if (data.schedule_id === targetLesson.schedule_id &&
+        data.day === targetDay &&
+        data.lesson_num === targetLesson.lesson_num) {
+      return;
+    }
+
+    // сначала перемещаем перетаскиваемый урок в целевую ячейку
+    await updatePosition(data.schedule_id, targetDay, targetLessonNum);
+    // затем перемещаем урок из целевой ячейки в исходную позицию
+    await updatePosition(targetLesson.schedule_id, data.day, data.lesson_num);
+    return;
+  }
+
+  // 3) если в цели 2 подгруппы и мы тащим одиночный урок -> заменить одну из подгрупп (swap с первой)
+  
+if (targetLessons.length === 2 && data.type !== "group") {
+    setPendingAction({
+      fromCell: { day: data.day, num: data.lesson_num },
+      toCell: { day: targetDay, num: targetLessonNum },
+      moving: data,
+      targetGroup: targetLessons
+    });
+
+    setModalOpen(true);
+    return;
+}
+
+  // 4) если мы тащим группу (две подгруппы)
+  if (data.type === "group") {
+    // проверка лимита
+    if (targetLessons.length + data.items.length > 2) {
+      alert("Нельзя иметь больше 2 подгрупп в одном уроке!");
+      return;
+    }
+
+    for (const item of data.items) {
+      await updatePosition(item.schedule_id, targetDay, targetLessonNum);
+    }
+    return;
+  }
+
+  // 5) оставшийся случай — когда в цели 1 или 2 и мы тащим single, но не попали выше — защита
+  if (targetLessons.length + movingCount > 2) {
+    alert("Нельзя иметь больше 2 подгрупп в одном уроке!");
+    return;
+  }
+
+  // fallback: переместить
+  if (data.type === "single" || data.type === "single" /* safety */) {
+    await updatePosition(data.schedule_id, targetDay, targetLessonNum);
+  }
+}}
+
                         >
                           {lessons.length === 0 ? (
                             <div className="text-center text-gray-400 h-full flex items-center justify-center">—</div>
@@ -480,17 +633,32 @@ export default function ScheduleView() {
                                   className="mb-2 p-2 rounded bg-white border border-gray-200 cursor-move relative"
                                   draggable
                                   onDragStart={(e) => {
-                                    e.dataTransfer.effectAllowed = "move";
-                                    const items = lessons.map(l => ({
-                                      schedule_id: l.schedule_id,
-                                      day,
-                                      lesson_num: i + 1
-                                    }));
-                                    e.dataTransfer.setData("text/plain", JSON.stringify({
-                                      type: "group",
-                                      items
-                                    }));
-                                  }}
+  e.dataTransfer.effectAllowed = "move";
+
+  // если в ячейке только один урок → это одиночное перемещение
+  if (lessons.length === 1) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({
+      type: "single",
+      schedule_id: lesson.schedule_id,
+      day,
+      lesson_num: i + 1
+    }));
+    return;
+  }
+
+  // если две подгруппы → передаём обе
+  const items = lessons.map(l => ({
+    schedule_id: l.schedule_id,
+    day,
+    lesson_num: i + 1
+  }));
+
+  e.dataTransfer.setData("text/plain", JSON.stringify({
+    type: "group",
+    items
+  }));
+}}
+
                                 >
                                   <div className="flex justify-between items-center">
                                     <div className="font-semibold">{lesson.subject}{groupLabel}</div>
