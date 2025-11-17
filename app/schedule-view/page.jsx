@@ -232,7 +232,7 @@ if (!data.success) {
       <button 
         onClick={prevClass} 
         disabled={currentClassIndex === 0} 
-        className="px-4 py-2 bg-gray-300 rounded"
+        className="px-4 py-2 bg-[#0a1c3a]  text-white rounded hover:bg-blue-700"
       >
         ←
       </button>
@@ -240,7 +240,7 @@ if (!data.success) {
       <button 
         onClick={nextClass} 
         disabled={currentClassIndex === classesArray.length - 1} 
-        className="px-4 py-2 bg-gray-300 rounded"
+        className="px-4 py-2 bg-[#0a1c3a]  text-white rounded hover:bg-blue-700 disabled:opacity-50"
       >
         →
       </button>
@@ -249,7 +249,7 @@ if (!data.success) {
     <div className="flex gap-4 mb-4">
       <button
         onClick={generateSchedule}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        className="px-4 py-2 bg-[#0a1c3a]  text-white rounded hover:bg-blue-700 disabled:opacity-50"
         disabled={generating}
       >
         {generating ? "Генерация..." : "Сгенерировать расписание"}
