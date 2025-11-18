@@ -9,7 +9,7 @@ export async function POST(req) {
 
   // создаём хэш, если ещё не создан
   if (!HASHED_PASSWORD) {
-    HASHED_PASSWORD = await bcrypt.hash("bigass", 10);
+    HASHED_PASSWORD = await bcrypt.hash("abai", 10);
   }
 
   // проверяем логин
