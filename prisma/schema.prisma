@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model users {
+  login    String  @id @db.VarChar(255)
+  password String  @db.VarChar(255)
+}
+
 model cabinets {
   room_id     Int        @id @default(autoincrement())
   room_number String     @db.VarChar(10)
@@ -61,8 +66,10 @@ model schedule {
   day_of_week String   @db.VarChar(20)
   lesson_num  Int
   year        Int
+
   cabinets    cabinets @relation(fields: [room_id], references: [room_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_cabinet")
   classes     classes  @relation(fields: [class_id], references: [class_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_class")
   subjects    subjects @relation(fields: [subject_id], references: [subject_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_subject")
   teachers    teachers @relation(fields: [teacher_id], references: [teacher_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_teacher")
 }
+
