@@ -382,7 +382,7 @@ async function handleGroup() {
 
   useEffect(() => {
     fetchSchedule();
-    fetchCabinets();
+    fetchCabinets();  
   }, []);
 
   if (loading) return <div className="p-4">Загрузка расписания...</div>;

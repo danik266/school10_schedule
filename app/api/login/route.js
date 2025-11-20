@@ -1,46 +1,60 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
+import { PrismaClient } from "@prisma/client";
 
-const ADMIN_USERNAME = "admin";
-let HASHED_PASSWORD;
+const prisma = new PrismaClient();
 
 export async function POST(req) {
-  const { username, password } = await req.json();
+  try {
+    const { username, password } = await req.json();
 
-  // создаём хэш, если ещё не создан
-  if (!HASHED_PASSWORD) {
-    HASHED_PASSWORD = await bcrypt.hash("abai", 10);
-  }
+    const login = username?.trim();
+    const pass = password?.trim();
 
-  // проверяем логин
-  if (username !== ADMIN_USERNAME) {
+    if (!login || !pass) {
+      return NextResponse.json(
+        { success: false, message: "Пустой логин или пароль" },
+        { status: 400 }
+      );
+    }
+
+    // ищем пользователя без учета регистра
+    const user = await prisma.users.findFirst({
+      where: { login: { equals: login, mode: "insensitive" } },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Неверный логин или пароль" },
+        { status: 401 }
+      );
+    }
+
+    // сравниваем пароли строго
+    if (user.password.trim() !== pass) {
+      return NextResponse.json(
+        { success: false, message: "Неверный логин или пароль" },
+        { status: 401 }
+      );
+    }
+
+    // создаем токен
+    const token = Buffer.from(`${login}:${Date.now()}`).toString("base64");
+
+    const response = NextResponse.json({ success: true });
+    response.cookies.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      maxAge: 60 * 60 * 24,
+    });
+
+    return response;
+  } catch (err) {
+    console.error(err);
     return NextResponse.json(
-      { success: false, message: "Неверный логин" },
-      { status: 401 }
+      { success: false, message: "Ошибка сервера" },
+      { status: 500 }
     );
   }
-
-  // проверяем пароль
-  const isValid = await bcrypt.compare(password, HASHED_PASSWORD);
-  if (!isValid) {
-    return NextResponse.json(
-      { success: false, message: "Неверный пароль" },
-      { status: 401 }
-    );
-  }
-
-  // создаём токен
-  const token = Buffer.from(`${username}:${Date.now()}`).toString("base64");
-
-  // создаём ответ и сразу ставим cookie
-  const res = NextResponse.json({ success: true });
-  res.cookies.set({
-    name: "token",
-    value: token,
-    httpOnly: true,
-    path: "/",
-    sameSite: "strict", // рекомендуемая настройка для безопасности
-  });
-
-  return res;
 }

@@ -102,7 +102,7 @@ export default function Home() {
       <main className="flex flex-col justify-center items-center py-10">
         <img src="/photo.svg" alt="Logo" className="w-80 object-contain mb-6" />
 
-        <h1 className="text-2xl font-bold mb-2 text-center">
+        <h1 className="text-3xl">
           {t[lang].title}
         </h1>
       </main>

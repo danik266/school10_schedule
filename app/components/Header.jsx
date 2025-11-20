@@ -14,7 +14,7 @@ export default function Header({ showLogin = false }) {
       <div className="flex items-center gap-3">
         {showLogin && (
           <Link href="/auth">
-            <button className="border rounded-full px-3 py-1 text-sm bg-[#0a1c3a]  text-white rounded hover:bg-blue-700 disabled:opacity-50">
+            <button className="border rounded-full px-10 py-1 text-sm bg-[#0a1c3a]  text-white rounded hover:bg-blue-700 disabled:opacity-50">
               {lang === "ru" ? "Войти" : "Кіру"}
             </button>
           </Link>
