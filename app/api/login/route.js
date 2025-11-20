@@ -1,60 +1,33 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
 export async function POST(req) {
   try {
-    const { username, password } = await req.json();
+    const { login, password } = await req.json();
 
-    const login = username?.trim();
-    const pass = password?.trim();
-
-    if (!login || !pass) {
-      return NextResponse.json(
-        { success: false, message: "Пустой логин или пароль" },
-        { status: 400 }
-      );
+    if (!login || !password) {
+      return NextResponse.json({ success: false, message: "Пустой логин или пароль" }, { status: 400 });
     }
 
-    // ищем пользователя без учета регистра
-    const user = await prisma.users.findFirst({
-      where: { login: { equals: login, mode: "insensitive" } },
-    });
+    const user = await prisma.users.findUnique({ where: { login } });
 
     if (!user) {
-      return NextResponse.json(
-        { success: false, message: "Неверный логин или пароль" },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, message: "Неверный логин или пароль" }, { status: 401 });
     }
 
-    // сравниваем пароли строго
-    if (user.password.trim() !== pass) {
-      return NextResponse.json(
-        { success: false, message: "Неверный логин или пароль" },
-        { status: 401 }
-      );
+    const isValid = await bcrypt.compare(password, user.password);
+
+    if (!isValid) {
+      return NextResponse.json({ success: false, message: "Неверный логин или пароль" }, { status: 401 });
     }
 
-    // создаем токен
-    const token = Buffer.from(`${login}:${Date.now()}`).toString("base64");
-
-    const response = NextResponse.json({ success: true });
-    response.cookies.set("token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      maxAge: 60 * 60 * 24,
-    });
-
-    return response;
+    // Возвращаем просто success, без cookie
+    return NextResponse.json({ success: true });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { success: false, message: "Ошибка сервера" },
-      { status: 500 }
-    );
+    console.error("LOGIN ERROR:", err);
+    return NextResponse.json({ success: false, message: "Ошибка сервера" }, { status: 500 });
   }
 }

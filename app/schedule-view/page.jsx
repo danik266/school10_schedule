@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-import Cookies from "js-cookie";
-
+import { useLanguage } from "../context/LanguageContext";
 export default function ScheduleView() {
   const [schedule, setSchedule] = useState({});
   const [cabinets, setCabinets] = useState([]);
@@ -15,15 +14,51 @@ export default function ScheduleView() {
   const [currentClassIndex, setCurrentClassIndex] = useState(0);
   const [openMenus, setOpenMenus] = useState({});
   const [conflicts, setConflicts] = useState([]);
-
+const { lang } = useLanguage();
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-  const dayNamesRu = {
-    Monday: "Понедельник",
-    Tuesday: "Вторник",
-    Wednesday: "Среда",
-    Thursday: "Четверг",
-    Friday: "Пятница",
+const t = {
+    ru: {
+      conflictsDetected: "Обнаружены конфликты:",
+      generateSchedule: "Сгенерировать расписание",
+      generating: "Генерация...",
+      downloadExcel: "Скачать Excel",
+      chooseAction: "Выберите действие",
+      swap: "Поменять местами",
+      group: "Объединить в подгруппы",
+      cancel: "Отмена",
+      splitLesson: "Разделить на 2 подгруппы",
+      mergeLesson: "Объединить подгруппы",
+      noData: "Нет данных",
+      notAssigned: "Не назначен",
+      cannotHaveMoreSubgroups: "Нельзя иметь больше 2 подгрупп в одном уроке!",
+      prevClass: "←",
+      nextClass: "→",
+    },
+    kz: {
+      conflictsDetected: "Табылған қақтығыстар:",
+      generateSchedule: "Кестені генерациялау",
+      generating: "Генерацияланады...",
+      downloadExcel: "Excel-ге жүктеу",
+      chooseAction: "Әрекетті таңдаңыз",
+      swap: "Орындарын ауыстыру",
+      group: "Топтарға біріктіру",
+      cancel: "Болдырмау",
+      splitLesson: "2 топқа бөлу",
+      mergeLesson: "Топтарды біріктіру",
+      noData: "Деректер жоқ",
+      notAssigned: "Белгіленбеген",
+      cannotHaveMoreSubgroups: "Бір сабақта 2 топтан артық болмауы керек!",
+      prevClass: "←",
+      nextClass: "→",
+    }
   };
+
+const dayNames = {
+  ru: { Monday: "Понедельник", Tuesday: "Вторник", Wednesday: "Среда", Thursday: "Четверг", Friday: "Пятница" },
+  kz: { Monday: "Дүйсенбі", Tuesday: "Сейсенбі", Wednesday: "Сәрсенбі", Thursday: "Бейсенбі", Friday: "Жұма" },
+};
+
+
 const [modalOpen, setModalOpen] = useState(false);
 const [pendingAction, setPendingAction] = useState(null); 
 // { fromCell, toCell, lessonA, lessonB }
@@ -337,7 +372,8 @@ async function handleGroup() {
       .forEach((cls) => {
         const maxLessons = Math.max(...Object.values(cls.days).map((day) => day?.length || 0));
         const sheetData = [];
-        sheetData.push(["#", ...days.map((d) => dayNamesRu[d])]);
+        sheetData.push(["#", ...days.map((d) => dayNames[lang][d])]);
+
 
         for (let lessonNum = 1; lessonNum <= maxLessons; lessonNum++) {
           const dayLessons = days.map(
@@ -460,10 +496,10 @@ async function handleFullSwap() {
           <strong>Обнаружены конфликты:</strong>
           <ul className="list-disc pl-5 mt-1">
             {conflicts.map((c, idx) => (
-              <li key={idx}>
-                {c.message.replace(/Monday|Tuesday|Wednesday|Thursday|Friday/g, (day) => dayNamesRu[day])}
-              </li>
-            ))}
+  <li key={idx}>
+    {c.message.replace(/Monday|Tuesday|Wednesday|Thursday|Friday/g, d => dayNames[lang][d])}
+  </li>
+))}
           </ul>
         </div>
       )}
@@ -509,11 +545,14 @@ async function handleFullSwap() {
             <table className="min-w-full border-collapse border border-gray-300">
               <thead>
                 <tr>
-                  <th className="border border-gray-300 p-2">#</th>
-                  {days.map((day) => (
-                    <th key={day} className="border border-gray-300 p-2">{dayNamesRu[day]}</th>
-                  ))}
-                </tr>
+  <th className="border border-gray-300 p-2">#</th>
+  {days.map((day) => (
+    <th key={day} className="border border-gray-300 p-2">
+      {dayNames[lang][day]}
+    </th>
+  ))}
+</tr>
+
               </thead>
               <tbody>
                 {Array.from({
