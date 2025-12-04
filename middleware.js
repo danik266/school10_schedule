@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 
 export function middleware(req) {
-  const token = req.cookies.get("token")?.value;
+  const userId = req.cookies.get("user_id")?.value;
 
-  // если токена нет — редиректим на логин
-  if (!token) {
-    return NextResponse.redirect(new URL("/", req.url));
+  if (req.nextUrl.pathname.startsWith("/schedule-view")) {
+    if (!userId) {
+      return NextResponse.redirect(new URL("/auth", req.url));
+    }
   }
 
-  // токен есть — пускаем дальше
   return NextResponse.next();
 }
 
 export const config = {
   matcher: ["/schedule-view/:path*"],
 };
-

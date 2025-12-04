@@ -39,22 +39,29 @@ export default function AuthPage() {
   };
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setError("");
+  e.preventDefault();
+  setError("");
 
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login, password: pass }), // исправлено
-      });
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login, password: pass }),
+    });
 
-      if (res.ok) router.push("/schedule-view");
-      else setError(t[lang].err);
-    } catch {
-      setError(t[lang].netErr);
-    }
-  };
+    const data = await res.json();
+
+    if (data.success) {
+  router.push("/schedule-view");
+} else {
+  setError(t[lang].err);
+}
+
+  } catch {
+    setError(t[lang].netErr);
+  }
+};
+
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);

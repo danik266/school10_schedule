@@ -24,8 +24,16 @@ export async function POST(req) {
       return NextResponse.json({ success: false, message: "Неверный логин или пароль" }, { status: 401 });
     }
 
-    // Возвращаем просто success, без cookie
-    return NextResponse.json({ success: true });
+    // Простая cookie с id пользователя
+    const response = NextResponse.json({ success: true });
+    response.cookies.set({
+      name: "user_id",
+      value: String(user.id),
+      path: "/",
+      maxAge: 3600, // 1 час
+    });
+
+    return response;
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     return NextResponse.json({ success: false, message: "Ошибка сервера" }, { status: 500 });
