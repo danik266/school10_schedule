@@ -1,6 +1,8 @@
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient({ log: ["error"] });
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 export async function GET(req) {
   try {
@@ -10,49 +12,30 @@ export async function GET(req) {
         lesson_num: true,
         day_of_week: true,
         year: true,
-        // Подтягиваем нужные поля
-        classes: {
-          select: {
-            class_name: true, // Это будет "5А", "6Б" и т.д.
-          },
-        },
-        subjects: {
-          select: {
-            name: true,
-          },
-        },
-        teachers: {
-          select: {
-            full_name: true,
-          },
-        },
-        cabinets: {
-          select: {
-            room_number: true,
-          },
-        },
+        class_id: true,
+        teacher_id: true,
+        subject_id: true,
+        classes:  { select: { class_name: true } },
+        subjects: { select: { name: true } },
+        teachers: { select: { full_name: true } },
+        cabinets: { select: { room_number: true } },
       },
-      orderBy: [
-        { classes: { class_name: "asc" } },
-        { lesson_num: "asc" },
-      ],
+      orderBy: [{ classes: { class_name: "asc" } }, { lesson_num: "asc" }],
     });
 
-const formatted = schedule.map((item) => ({
-  id: item.schedule_id,
-  schedule_id: item.schedule_id,
-  class_id: item.class_id,
-  teacher_id: item.teacher_id,
-  subject_id: item.subject_id,
-  group: item.classes.class_name,
-  day_of_week: item.day_of_week, // ✅ добавлено!
-  lesson_number: item.lesson_num,
-  subject_name: item.subjects.name,
-  teacher_name: item.teachers.full_name,
-  room_number: item.cabinets.room_number,
-}));
-
-
+    const formatted = schedule.map((item) => ({
+      id: item.schedule_id,
+      schedule_id: item.schedule_id,
+      class_id: item.class_id,
+      teacher_id: item.teacher_id,
+      subject_id: item.subject_id,
+      group: item.classes.class_name,
+      day_of_week: item.day_of_week,
+      lesson_number: item.lesson_num,
+      subject_name: item.subjects.name,
+      teacher_name: item.teachers.full_name,
+      room_number: item.cabinets.room_number,
+    }));
 
     return new Response(JSON.stringify(formatted), {
       status: 200,
@@ -64,10 +47,9 @@ const formatted = schedule.map((item) => ({
       JSON.stringify({ error: "Не удалось загрузить расписание" }),
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
+
 export async function POST(req) {
   try {
     const data = await req.json();
@@ -97,16 +79,16 @@ export async function POST(req) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
+
 export async function DELETE(req) {
   try {
     const { id } = await req.json();
     if (!id) {
       return new Response(
-        JSON.stringify({ error: "id не указан" }), // <-- валидный JSON
+        JSON.stringify({ error: "id не указан" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
-
     await prisma.schedule.delete({ where: { schedule_id: Number(id) } });
     return new Response(
       JSON.stringify({ success: true }),

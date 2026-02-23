@@ -1,6 +1,8 @@
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient({ log: ["error"] });
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 export async function GET(req, { params: paramsPromise }) {
   const params = await paramsPromise;
@@ -9,7 +11,7 @@ export async function GET(req, { params: paramsPromise }) {
   try {
     const studyPlans = await prisma.study_plan.findMany({
       where: { class_id: classId },
-      include: { subjects: true }, // имя связи из schema.prisma
+      include: { subjects: true },
     });
 
     const subjects = studyPlans.map((sp) => ({

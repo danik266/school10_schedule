@@ -19,16 +19,17 @@ export async function GET() {
       const className = lesson.classes.class_name;
       const day = lesson.day_of_week;
 
-      if (!formatted[className]) formatted[className] = { class_name: className, days: {} };
+      if (!formatted[className]) formatted[className] = { class_name: className, class_id: lesson.class_id, days: {} };
       if (!formatted[className].days[day]) formatted[className].days[day] = [];
 
 formatted[className].days[day].push({
   schedule_id: lesson.schedule_id,
+  class_id: lesson.class_id,
   subject: lesson.subjects.name,
   teacher: lesson.teachers?.full_name || "—",
   teacher_id: lesson.teacher_id,
-  room_id: lesson.room_id,      // ✅ используем для value
-  room_number: lesson.cabinets?.room_number || "—", // для отображения
+  room_id: lesson.room_id,
+  room_number: lesson.cabinets?.room_number || "—",
   room_name: lesson.cabinets?.room_name || "",
   lesson_num: lesson.lesson_num,
 });

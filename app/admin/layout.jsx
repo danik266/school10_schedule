@@ -7,6 +7,7 @@ import {
   Settings,
   ArrowLeft,
   DoorOpen,
+  ClipboardList,
 } from "lucide-react";
 
 export default function AdminLayout({ children }) {
@@ -46,24 +47,46 @@ export default function AdminLayout({ children }) {
           </Link>
 
           {/* Разделитель */}
-          <div className="mt-8 mb-2 px-3 text-xs uppercase text-blue-300/50 font-bold">
-            В разработке
+          <div className="mt-6 mb-2 px-3 text-xs uppercase text-blue-300/70 font-bold tracking-wider">
+            Управление нагрузкой
           </div>
 
-          <div className="flex items-center gap-3 p-3 rounded-lg text-gray-400 opacity-50 cursor-not-allowed">
+          <Link
+            href="/admin/workload"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
             <BookOpen size={18} />
             Нагрузка (Часы)
-          </div>
+          </Link>
 
-          <div className="flex items-center gap-3 p-3 rounded-lg text-gray-400 opacity-50 cursor-not-allowed">
+          <Link
+            href="/admin/duties"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
             <Shield size={18} />
             Дежурства
+          </Link>
+
+          <Link
+            href="/admin/windows"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
+            <Settings size={18} />
+            Расписание и замены
+          </Link>
+
+          {/* Разделитель */}
+          <div className="mt-6 mb-2 px-3 text-xs uppercase text-blue-300/70 font-bold tracking-wider">
+            Учебный план
           </div>
 
-          <div className="flex items-center gap-3 p-3 rounded-lg text-gray-400 opacity-50 cursor-not-allowed">
-            <Settings size={18} />
-            Перепады (Окна)
-          </div>
+          <Link
+            href="/admin/curriculum"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
+            <ClipboardList size={18} />
+            Учебный план
+          </Link>
         </nav>
 
         {/* Низ сайдбара */}
