@@ -44,7 +44,7 @@ function getWeekdaysInRange(startDate, endDate) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { teacherId, startDate, endDate } = body;
+    const { teacherId, startDate, endDate, duties = [] } = body;
 
     if (!teacherId || !startDate || !endDate) {
       return NextResponse.json(
@@ -96,10 +96,11 @@ export async function POST(request) {
     // 4. For each lesson, find a free substitute teacher
     const allTeachers = await prisma.teachers.findMany();
 
-    // Загружаем все активные замены — учителя которые сами сейчас на замене
-    // (их teacher_id стоит вместо больного учителя в расписании)
+    // Загружаем активные замены — только те, период которых ещё не истёк
+    // (end_date >= сегодня), чтобы не считать учителя занятыми после завершения замены
+    const todayStr = new Date().toISOString().slice(0, 10);
     const activeLogs = await prisma.substitute_logs.findMany({
-      where: { status: "success" },
+      where: { status: "success", end_date: { gte: todayStr } },
       select: { sick_teacher_id: true, details: true },
     });
     // Собираем ID всех учителей-заместителей из активных замен
@@ -109,6 +110,35 @@ export async function POST(request) {
       if (details?.substitutions && Array.isArray(details.substitutions)) {
         for (const s of details.substitutions) {
           if (s.substituteTeacherId) currentSubstituteIds.add(s.substituteTeacherId);
+        }
+      }
+    }
+
+    // Добавляем учителей на дежурстве: если дежурство активно и его день
+    // совпадает с одним из дней отсутствия — учитель недоступен в этот день.
+    // Для упрощения: если учитель на дежурстве в любой из absentDays — исключаем полностью.
+    const DUTY_DAY_MAP = {
+      monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
+      thursday: "Thursday", friday: "Friday",
+    };
+    const dutyUnavailableTeachers = new Set(); // teacher_id -> Set<day> (упрощённо: блок на все дни замены)
+    const dutyUnavailableByDay = {}; // day -> Set<teacher_id>
+    for (const d of absentDays) dutyUnavailableByDay[d] = new Set();
+
+    for (const duty of duties) {
+      // Проверяем активность по датам (если не повторяющееся)
+      if (duty.date_from && duty.date_to && !duty.is_recurring) {
+        const from = new Date(duty.date_from); from.setHours(0,0,0,0);
+        const to   = new Date(duty.date_to);   to.setHours(23,59,59,999);
+        const start = new Date(startDate); start.setHours(0,0,0,0);
+        const end   = new Date(endDate);   end.setHours(23,59,59,999);
+        // Дежурство не пересекается с периодом замены — пропускаем
+        if (end < from || start > to) continue;
+      }
+      const dutyDays = (duty.days || []).map(d => DUTY_DAY_MAP[d.toLowerCase()]).filter(Boolean);
+      for (const day of dutyDays) {
+        if (dutyUnavailableByDay[day]) {
+          dutyUnavailableByDay[day].add(duty.teacher_id);
         }
       }
     }
@@ -163,11 +193,12 @@ export async function POST(request) {
     for (const lesson of sickLessons) {
       const lessonSubjectName = lesson.subjects?.name || "";
 
-      // Priority 1: same subject teachers, исключаем тех кто сам сейчас на замене
+      // Priority 1: same subject teachers, исключаем тех кто сам сейчас на замене или дежурстве
       const sameSubjectTeachers = allTeachers.filter(
         (t) =>
           t.teacher_id !== teacherIdNum &&
           !currentSubstituteIds.has(t.teacher_id) &&
+          !(dutyUnavailableByDay[lesson.day_of_week]?.has(t.teacher_id)) &&
           subjectMatches(t.subject, lessonSubjectName)
       );
 
@@ -177,12 +208,13 @@ export async function POST(request) {
 
       // Priority 2: fallback — ANY teacher who is free at this slot
       // (они могут присматривать даже если не того же предмета),
-      // но тоже исключаем тех кто сам на замене
+      // но тоже исключаем тех кто сам на замене или дежурстве
       if (!freeTeacher) {
         freeTeacher = allTeachers.find(
           (t) =>
             t.teacher_id !== teacherIdNum &&
             !currentSubstituteIds.has(t.teacher_id) &&
+            !(dutyUnavailableByDay[lesson.day_of_week]?.has(t.teacher_id)) &&
             isFree(t, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id)
         );
       }

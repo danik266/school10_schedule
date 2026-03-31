@@ -56,22 +56,38 @@ const matchT = (sn, ts) => {
 };
 const nuanceOk = (t,day,num) => { const n=t.nuances; if(!n||n==="none")return true; if(n==="no_friday"&&day==="Friday")return false; if(n==="no_monday"&&day==="Monday")return false; if(n==="morning_only"&&num>4)return false; if(n==="afternoon_only"&&num<=4)return false; if(n==="no_first_lesson"&&num===1)return false; return true; };
 
+// hardBusy — "teacherId|day" которые НИКОГДА не берутся (дежурство/замена).
+let _hardBusy = new Set();
 const pickT = (sn, teachers, busy, day, num) => {
-  let c=teachers.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id)&&nuanceOk(t,day,num));
+  const avail = teachers.filter(t => !_hardBusy.has(`${t.teacher_id}|${day}`));
+  let c=avail.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id)&&nuanceOk(t,day,num));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=teachers.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id));
+  c=avail.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=teachers.filter(t=>matchT(sn,t.subject));
+  c=avail.filter(t=>matchT(sn,t.subject));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=teachers.filter(t=>!busy.has(t.teacher_id));
+  c=avail.filter(t=>!busy.has(t.teacher_id));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  return teachers[0]||null;
+  return avail[0]||null;
 };
 
 const shuf = a => { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
 
+// Нормализует день дежурства к формату расписания (Monday, Tuesday, ...)
+const DUTY_DAY_MAP = {
+  monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
+  thursday: "Thursday", friday: "Friday",
+};
+
 export async function POST(req) {
   try {
+    // Получаем дежурства из тела запроса (переданы с клиента из localStorage)
+    let duties = [];
+    try {
+      const body = await req.json();
+      duties = Array.isArray(body?.duties) ? body.duties : [];
+    } catch {}
+
     const settings = global.scheduleSettings||{};
     const MAX_JR = settings.max_lessons_junior||8;
     const MAX_SR = settings.max_lessons_senior||9;
@@ -105,6 +121,75 @@ export async function POST(req) {
       if(free.length) return free[Math.floor(Math.random()*free.length)];
       return pool[Math.floor(Math.random()*pool.length)]||null;
     };
+
+    // ── Дежурства: помечаем учителей занятыми на все слоты дежурных дней ──────
+    // duties приходят с клиента (localStorage). Для каждого дежурства берём дни
+    // (days: ["monday","wednesday"]) и блокируем учителя на весь этот день.
+    // Если у дежурства задан период (date_from/date_to), проверяем что текущая дата
+    // попадает в диапазон (при повторяющихся is_recurring — всегда активно).
+    const today = new Date(); today.setHours(0,0,0,0);
+    for (const duty of duties) {
+      // Проверяем активность дежурства по датам
+      if (duty.date_from && duty.date_to && !duty.is_recurring) {
+        const from = new Date(duty.date_from); from.setHours(0,0,0,0);
+        const to   = new Date(duty.date_to);   to.setHours(23,59,59,999);
+        if (today < from || today > to) continue; // неактивно сейчас
+      }
+      const dutyDays = (duty.days || []).map(d => DUTY_DAY_MAP[d.toLowerCase()]).filter(Boolean);
+      for (const day of dutyDays) {
+        if (!tBusy[day]) continue;
+        // Блокируем учителя на все слоты этого дня
+        for (let slot = 1; slot <= 10; slot++) {
+          tBusy[day][slot].add(duty.teacher_id);
+        }
+      }
+    }
+
+    // ── Активные замены: учитель-заместитель уже занят в своих слотах ─────────
+    // Загружаем логи замен которые ещё активны (end_date >= сегодня)
+    const todayStr = today.toISOString().slice(0, 10);
+    const activeSubstituteLogs = await prisma.substitute_logs.findMany({
+      where: { status: "success", end_date: { gte: todayStr } },
+      select: { sick_teacher_id: true, details: true },
+    });
+    for (const log of activeSubstituteLogs) {
+      const subs = log.details?.substitutions;
+      if (!Array.isArray(subs)) continue;
+      for (const s of subs) {
+        if (!s.substituteTeacherId || !s.day || !s.lessonNum) continue;
+        if (tBusy[s.day]?.[s.lessonNum]) {
+          tBusy[s.day][s.lessonNum].add(s.substituteTeacherId);
+        }
+      }
+    }
+
+    // ── Заполняем _hardBusy на основе дежурств и замен ──────────────────────
+    // Это гарантирует что pickT НИКОГДА не назначит занятого учителя даже в fallback
+    _hardBusy = new Set();
+    for (const duty of duties) {
+      if (duty.date_from && duty.date_to && !duty.is_recurring) {
+        const from = new Date(duty.date_from); from.setHours(0,0,0,0);
+        const to   = new Date(duty.date_to);   to.setHours(23,59,59,999);
+        if (today < from || today > to) continue;
+      }
+      const dutyDays = (duty.days || []).map(d => DUTY_DAY_MAP[d.toLowerCase()]).filter(Boolean);
+      for (const day of dutyDays) {
+        _hardBusy.add(`${duty.teacher_id}|${day}`);
+      }
+    }
+    for (const log of activeSubstituteLogs) {
+      // Больной учитель тоже не должен появляться в новом расписании
+      if (log.sick_teacher_id) {
+        for (const day of DAYS) _hardBusy.add(`${log.sick_teacher_id}|${day}`);
+      }
+      const subs = log.details?.substitutions;
+      if (!Array.isArray(subs)) continue;
+      for (const s of subs) {
+        if (s.substituteTeacherId && s.day) {
+          _hardBusy.add(`${s.substituteTeacherId}|${s.day}`);
+        }
+      }
+    }
 
     // ── Специальные кабинеты — сколько их ────────────────────────────────────
     const gymCabs  = cabinets.filter(c=>(c.room_name||"").toLowerCase().includes("спортзал")||(c.room_number||"").toLowerCase().includes("спортзал"));

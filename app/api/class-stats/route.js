@@ -4,15 +4,11 @@ const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient({ log: ["error"] });
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-// GET /api/class-stats?classId=123
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const classId = Number(searchParams.get("classId"));
-
-    if (!classId) {
-      return Response.json({ error: "classId required" }, { status: 400 });
-    }
+    if (!classId) return Response.json({ error: "classId required" }, { status: 400 });
 
     const studyPlans = await prisma.study_plan.findMany({
       where: { class_id: classId },
@@ -22,73 +18,92 @@ export async function GET(req) {
     const scheduleRows = await prisma.schedule.findMany({
       where: { class_id: classId },
       include: { subjects: { select: { name: true } } },
+      orderBy: { schedule_id: "asc" },
     });
 
-    // Считаем уникальные слоты (день + номер урока) по subject_id.
-    // Подгруппы дают 2 строки на один слот — считаем слот один раз.
-    const actualBySubject = {};
+    // Для каждого слота (day+lesson_num) узнаём все subject_id
+    const slotSubjectIds = {}; // slotKey -> Set<subject_id>
+    for (const row of scheduleRows) {
+      const key = `${row.day_of_week}_${row.lesson_num}`;
+      if (!slotSubjectIds[key]) slotSubjectIds[key] = new Set();
+      slotSubjectIds[key].add(row.subject_id);
+    }
+
+    // Для каждого предмета собираем слоты и их тип
+    // "full" = предмет — единственный в слоте (или занимает все места)
+    // "shared" = предмет делит слот с другим предметом (подгруппа)
+    const bySubject = {}; // subject_id -> { name, fullSlots: Set, sharedSlots: Set }
     for (const row of scheduleRows) {
       const sid = row.subject_id;
-      if (!actualBySubject[sid]) {
-        actualBySubject[sid] = { name: row.subjects.name, slots: new Set() };
+      const key = `${row.day_of_week}_${row.lesson_num}`;
+      if (!bySubject[sid]) bySubject[sid] = { name: row.subjects.name, fullSlots: new Set(), sharedSlots: new Set() };
+      const othersInSlot = [...slotSubjectIds[key]].filter(s => s !== sid);
+      if (othersInSlot.length === 0) {
+        bySubject[sid].fullSlots.add(key);
+      } else {
+        bySubject[sid].sharedSlots.add(key);
       }
-      actualBySubject[sid].slots.add(`${row.day_of_week}_${row.lesson_num}`);
     }
+
+    // Считаем эффективные уроки:
+    // - Каждый "full" слот = 1 урок
+    // - "shared" слоты: если предмет X делит слот с предметом Y,
+    //   то это подгруппная структура. 
+    //   Каждый такой shared слот = 1 урок (подгруппа класса всё равно имеет урок).
+    //   НО: если предмет встречается в 2 shared слотах с ОДНИМ И ТЕМ ЖЕ партнёром —
+    //   это значит подгруппы разнесены (П1 в слоте А, П2 в слоте Б) = считаем как 1 урок.
+
+    const computeActual = (info, sid) => {
+      let count = info.fullSlots.size;
+
+      // Для shared слотов: группируем по "партнёру" (другому предмету в слоте)
+      // Если 2 shared слота имеют одинакового партнёра — это пара подгрупп = 1 урок
+      // Если 2 shared слота имеют разных партнёров — это 2 разных урока
+      const partnerToSlots = {}; // partnerSubjectId -> [slotKeys]
+      for (const slotKey of info.sharedSlots) {
+        const partners = [...slotSubjectIds[slotKey]].filter(s => s !== sid);
+        const partnerKey = partners.sort().join(",");
+        if (!partnerToSlots[partnerKey]) partnerToSlots[partnerKey] = [];
+        partnerToSlots[partnerKey].push(slotKey);
+      }
+
+      for (const [, slots] of Object.entries(partnerToSlots)) {
+        // Каждая пара слотов с одним партнёром = 1 урок (разнесённые подгруппы)
+        // Одиночный слот без пары = 1 урок
+        // Т.е. ceil(slots.length / 2) уроков
+        count += Math.ceil(slots.length / 2);
+      }
+
+      return count;
+    };
 
     const subjects = studyPlans.map((sp) => {
       const planned = Number(sp.hours_per_week);
-      const actual = actualBySubject[sp.subject_id]?.slots.size || 0;
-
-      // Дробные часы (0.5 = раз в 2 недели):
-      // Если план дробный и факт >= 1 — считаем нормой (урок стоит раз в неделю
-      // чередуясь, 1 слот в расписании — это корректно)
-      const isBiweekly = planned % 1 !== 0; // не целое число
+      const info = bySubject[sp.subject_id] || { fullSlots: new Set(), sharedSlots: new Set() };
+      const actual = computeActual(info, sp.subject_id);
+      const isBiweekly = planned % 1 !== 0;
       const effectivePlanned = isBiweekly ? Math.ceil(planned) : planned;
       const diff = actual - effectivePlanned;
       const ok = diff === 0;
-
-      return {
-        subject_id: sp.subject_id,
-        name: sp.subjects.name,
-        planned,           // оригинальное значение из БД (может быть 0.5)
-        actual,
-        diff,
-        ok,
-        biweekly: isBiweekly, // флаг для фронтенда
-      };
+      return { subject_id: sp.subject_id, name: sp.subjects.name, planned, actual, diff, ok, biweekly: isBiweekly };
     });
 
-    // Предметы в расписании, которых нет в учебном плане
     const planSubjectIds = new Set(studyPlans.map((sp) => sp.subject_id));
-    const extra = Object.entries(actualBySubject)
+    const extra = Object.entries(bySubject)
       .filter(([sid]) => !planSubjectIds.has(Number(sid)))
-      .map(([sid, v]) => ({
-        subject_id: Number(sid),
-        name: v.name,
-        planned: 0,
-        actual: v.slots.size,
-        diff: v.slots.size,
-        ok: false,
-        biweekly: false,
-      }));
+      .map(([sid, info]) => {
+        const actual = computeActual(info, Number(sid));
+        return { subject_id: Number(sid), name: info.name, planned: 0, actual, diff: actual, ok: false, biweekly: false };
+      });
 
     const allSubjects = [...subjects, ...extra];
     const totalPlanned = allSubjects.reduce((s, x) => s + x.planned, 0);
-
     const allSlots = new Set();
-    for (const row of scheduleRows) {
-      allSlots.add(`${row.subject_id}_${row.day_of_week}_${row.lesson_num}`);
-    }
+    for (const row of scheduleRows) allSlots.add(`${row.subject_id}_${row.day_of_week}_${row.lesson_num}`);
     const totalActual = allSlots.size;
     const issuesCount = allSubjects.filter((x) => !x.ok).length;
 
-    return Response.json({
-      success: true,
-      subjects: allSubjects,
-      totalPlanned,
-      totalActual,
-      issuesCount,
-    });
+    return Response.json({ success: true, subjects: allSubjects, totalPlanned, totalActual, issuesCount });
   } catch (err) {
     console.error("class-stats GET error:", err);
     return Response.json({ error: err.message }, { status: 500 });

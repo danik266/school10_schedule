@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   DoorOpen,
   ClipboardList,
+  Calendar,
 } from "lucide-react";
 
 export default function AdminLayout({ children }) {
@@ -73,6 +74,14 @@ export default function AdminLayout({ children }) {
           >
             <Settings size={18} />
             Расписание и замены
+          </Link>
+
+          <Link
+            href="/schedule-view"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
+            <Calendar size={18} />
+            Расписание
           </Link>
 
           {/* Разделитель */}

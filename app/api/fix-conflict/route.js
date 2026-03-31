@@ -6,6 +6,48 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
+const DUTY_DAY_MAP = {
+  monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
+  thursday: "Thursday", friday: "Friday",
+};
+
+// Строим Set "teacherId|day" из дежурств и активных замен — эти учителя не могут быть назначены
+const buildHardBusy = async (duties = []) => {
+  const hardBusy = new Set();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0, 10);
+
+  // Дежурства (из localStorage, переданы клиентом)
+  for (const duty of duties) {
+    if (duty.date_from && duty.date_to && !duty.is_recurring) {
+      const from = new Date(duty.date_from); from.setHours(0,0,0,0);
+      const to   = new Date(duty.date_to);   to.setHours(23,59,59,999);
+      if (today < from || today > to) continue;
+    }
+    const dutyDays = (duty.days || []).map(d => DUTY_DAY_MAP[d.toLowerCase()]).filter(Boolean);
+    for (const day of dutyDays) hardBusy.add(`${duty.teacher_id}|${day}`);
+  }
+
+  // Активные замены из БД
+  const activeLogs = await prisma.substitute_logs.findMany({
+    where: { status: "success", end_date: { gte: todayStr } },
+    select: { sick_teacher_id: true, details: true },
+  });
+  for (const log of activeLogs) {
+    // Больной не должен появляться
+    if (log.sick_teacher_id) {
+      for (const d of DAYS) hardBusy.add(`${log.sick_teacher_id}|${d}`);
+    }
+    // Заместитель занят в своих слотах
+    const subs = log.details?.substitutions;
+    if (!Array.isArray(subs)) continue;
+    for (const s of subs) {
+      if (s.substituteTeacherId && s.day) hardBusy.add(`${s.substituteTeacherId}|${s.day}`);
+    }
+  }
+  return hardBusy;
+};
+
 // Проверка совпадения предмета учителя с предметом урока
 const subjectMatch = (teacherSubject, lessonSubject) => {
   if (!teacherSubject || !lessonSubject) return false;
@@ -103,11 +145,13 @@ const updateCache = (cache, scheduleId, changes) => {
  *  - нет второго урока ЭТОГО предмета в тот же день
  *  - перемещение не превысит норму часов из учебного плана
  */
-const smartFix = async (lesson, cache, allTeachers, allCabinets, studyPlanMap) => {
+const smartFix = async (lesson, cache, allTeachers, allCabinets, studyPlanMap, hardBusy = new Set()) => {
   const { schedule_id, class_id, subject_id, teacher_id, day_of_week, lesson_num, room_id } = lesson;
   const subjectName = lesson.subjects?.name || "";
 
-  const sameSubjectTeachers = allTeachers.filter(t => t.teacher_id !== teacher_id && subjectMatch(t.subject, subjectName));
+  // Исключаем учителей на дежурстве/замене
+  const availTeachers = allTeachers.filter(t => !hardBusy.has(`${t.teacher_id}|${day_of_week}`));
+  const sameSubjectTeachers = availTeachers.filter(t => t.teacher_id !== teacher_id && subjectMatch(t.subject, subjectName));
 
   // ── 1. Свободный учитель того же предмета в ЭТОМ слоте ──────────────────
   // Урок остаётся на месте — план не нарушается, проверять withinStudyPlan не нужно
@@ -130,8 +174,11 @@ const smartFix = async (lesson, cache, allTeachers, allCabinets, studyPlanMap) =
   };
 
   // ── 2. Переставить урок в слот где ТЕКУЩИЙ учитель свободен ─────────────
-  for (const d of DAYS) {
+  // Если текущий учитель сам на дежурстве/замене — пропускаем этот шаг
+  const currentTeacherAvailable = !hardBusy.has(`${teacher_id}|${day_of_week}`);
+  if (currentTeacherAvailable) for (const d of DAYS) {
     for (let n = 1; n <= 8; n++) {
+      if (hardBusy.has(`${teacher_id}|${d}`)) continue;
       if (!canMoveTo(d, n, teacher_id)) continue;
       const freeRoom = allCabinets.find(c => isRoomFree(cache, allCabinets, c.room_id, d, n, schedule_id));
       const newRoomId = freeRoom?.room_id || room_id;
@@ -144,6 +191,7 @@ const smartFix = async (lesson, cache, allTeachers, allCabinets, studyPlanMap) =
   // ── 3. Найти слот с учителем того же предмета ────────────────────────────
   for (const t of sameSubjectTeachers) {
     for (const d of DAYS) {
+      if (hardBusy.has(`${t.teacher_id}|${d}`)) continue;
       for (let n = 1; n <= 8; n++) {
         if (!canMoveTo(d, n, t.teacher_id)) continue;
         const freeRoom = allCabinets.find(c => isRoomFree(cache, allCabinets, c.room_id, d, n, schedule_id));
@@ -186,7 +234,7 @@ const buildStudyPlanMap = async () => {
 
 export async function POST(req) {
   try {
-    const { type, day, lesson_num, class_name } = await req.json();
+    const { type, day, lesson_num, class_name, duties = [] } = await req.json();
 
     // Загружаем всё в кэш — обновляем его в памяти чтобы не создавать новые конфликты
     const cache = await prisma.schedule.findMany({
@@ -197,6 +245,9 @@ export async function POST(req) {
 
     // ── Загружаем учебный план ──────────────────────────────────────────────
     const studyPlanMap = await buildStudyPlanMap();
+
+    // ── Строим hardBusy: дежурные + замены — никогда не назначаем ──────────
+    const hardBusy = await buildHardBusy(duties);
 
     const results = [];
 
@@ -210,7 +261,7 @@ export async function POST(req) {
       for (const group of Object.values(byTeacher)) {
         if (group.length < 2) continue;
         for (let i = 1; i < group.length; i++) {
-          results.push(await smartFix(group[i], cache, allTeachers, allCabinets, studyPlanMap));
+          results.push(await smartFix(group[i], cache, allTeachers, allCabinets, studyPlanMap, hardBusy));
         }
       }
     }
@@ -239,7 +290,7 @@ export async function POST(req) {
             results.push({ action: "room_changed" });
           } else {
             // Кабинет не нашли — переставляем урок
-            results.push(await smartFix(group[i], cache, allTeachers, allCabinets, studyPlanMap));
+            results.push(await smartFix(group[i], cache, allTeachers, allCabinets, studyPlanMap, hardBusy));
           }
         }
       }
@@ -269,7 +320,7 @@ export async function POST(req) {
       const seen = {};
       for (const s of subgroups) {
         if (seen[s.teacher_id]) {
-          results.push(await smartFix(s, cache, allTeachers, allCabinets, studyPlanMap));
+          results.push(await smartFix(s, cache, allTeachers, allCabinets, studyPlanMap, hardBusy));
         } else { seen[s.teacher_id] = s; }
       }
     }

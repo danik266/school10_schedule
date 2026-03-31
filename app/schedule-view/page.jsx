@@ -120,6 +120,7 @@ export default function ScheduleView() {
   const [freeTeachersDay, setFreeTeachersDay] = useState("Monday");
   const [activeTab, setActiveTab] = useState("stats");
   const [fixingConflict, setFixingConflict] = useState(null);
+  const [swapMenu, setSwapMenu] = useState(null); // { draggedLesson, targetLessons, day, lessonNum }
 
   const { confirm, Modal: ConfirmModalComponent } = useConfirm();
 
@@ -182,7 +183,8 @@ export default function ScheduleView() {
   const fixConflict = async (conflict, idx) => {
     setFixingConflict(idx);
     try {
-      const res = await fetch("/api/fix-conflict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: conflict.type, day: conflict.day, lesson_num: conflict.lesson_num, class_name: conflict.class_name }) });
+      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
+      const res = await fetch("/api/fix-conflict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: conflict.type, day: conflict.day, lesson_num: conflict.lesson_num, class_name: conflict.class_name, duties }) });
       const data = await res.json();
       if (data.success) { showToast("Конфликт исправлен!", "success"); await fetchSchedule(); }
       else showToast(data.error || "Не удалось исправить", "error");
@@ -213,7 +215,17 @@ export default function ScheduleView() {
 
   const generateSchedule = async () => {
     setGenerating(true);
-    try { const res = await fetch("/api/generate-schedule", { method: "POST" }); const data = await res.json(); if (data.success) await fetchSchedule(); } catch {} finally { setGenerating(false); }
+    try {
+      // Передаём дежурства из localStorage, чтобы генератор учёл занятых учителей
+      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
+      const res = await fetch("/api/generate-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duties }),
+      });
+      const data = await res.json();
+      if (data.success) await fetchSchedule();
+    } catch {} finally { setGenerating(false); }
   };
 
   const handleSubstitute = async () => {
@@ -221,7 +233,8 @@ export default function ScheduleView() {
     if (new Date(endDate) < new Date(startDate)) { showToast("Дата окончания не может быть раньше даты начала!", "error"); return; }
     setIsSubstituting(true);
     try {
-      const res = await fetch("/api/substitute-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherId: sickTeacherId, startDate, endDate }) });
+      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
+      const res = await fetch("/api/substitute-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherId: sickTeacherId, startDate, endDate, duties }) });
       const data = await res.json();
       if (data.success) { showToast("Замены успешно найдены и применены!", "success"); setSickTeacherId(""); setStartDate(""); setEndDate(""); await fetchSchedule(); }
       else showToast(data.message || data.error || "Ошибка при поиске замены", "error");
@@ -613,7 +626,7 @@ export default function ScheduleView() {
                   if (!ok) return;
                   let fixed = 0;
                   for (const c of conflicts) {
-                    try { const res = await fetch("/api/fix-conflict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.type, day: c.day, lesson_num: c.lesson_num, class_name: c.class_name }) }); const d = await res.json(); if (d.success) fixed++; } catch {}
+                    try { const res = await fetch("/api/fix-conflict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.type, day: c.day, lesson_num: c.lesson_num, class_name: c.class_name, duties: (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })() }) }); const d = await res.json(); if (d.success) fixed++; } catch {}
                   }
                   showToast(`Исправлено ${fixed} из ${conflicts.length}`, fixed > 0 ? "success" : "error");
                   await fetchSchedule();
@@ -906,11 +919,30 @@ export default function ScheduleView() {
                                       else { for (const item of data.items) await updatePosition(item.schedule_id, day, lessonNum); }
                                       return;
                                     }
-                                    if (targetLessons.length === 1) {
-                                      const tl = targetLessons[0]; if (data.schedule_id === tl.schedule_id) return;
+                                    // single lesson dropped
+                                    if (data.schedule_id === targetLessons[0]?.schedule_id || data.schedule_id === targetLessons[1]?.schedule_id) return;
+                                    if (data.isInGroup && targetLessons.length === 2) {
+                                      // Show menu: swap only this subgroup OR swap whole group
+                                      // Получаем srcLessons прямо здесь пока данные свежие
+                                      const srcLessons = currentClass.days[data.day]?.filter(l => l.lesson_num === data.lesson_num) || [];
+                                      const draggedIdx = srcLessons.findIndex(l => l.schedule_id === data.schedule_id);
+                                      setSwapMenu({ draggedLesson: data, targetLessons, day, lessonNum, srcLessons, draggedIdx });
+                                      return;
+                                    }
+                                    if (data.isInGroup && targetLessons.length === 1) {
+                                      // dragging one subgroup to a single lesson cell — swap just that one
+                                      const tl = targetLessons[0];
                                       await updatePosition(data.schedule_id, day, lessonNum); await updatePosition(tl.schedule_id, data.day, data.lesson_num); return;
                                     }
-                                    if (targetLessons.length === 2) { for (const tl of targetLessons) await updatePosition(tl.schedule_id, data.day, data.lesson_num); await updatePosition(data.schedule_id, day, lessonNum); }
+                                    if (targetLessons.length === 1) {
+                                      const tl = targetLessons[0];
+                                      await updatePosition(data.schedule_id, day, lessonNum); await updatePosition(tl.schedule_id, data.day, data.lesson_num); return;
+                                    }
+                                    if (targetLessons.length === 2) {
+                                      // одиночный урок дропается на 2 подгруппы — тоже показываем меню
+                                      const srcLessons = [];
+                                      setSwapMenu({ draggedLesson: data, targetLessons, day, lessonNum, srcLessons, draggedIdx: -1 });
+                                    }
                                   }}
                                 >
                                   {lessons.length === 0 ? (
@@ -930,15 +962,41 @@ export default function ScheduleView() {
                                       const teacherSubject = teacher ? teacher.subject : "";
                                       const groupLabel = lessons.length > 1 ? `Подгруппа ${idx + 1}` : "";
                                       return (
+                                        <div key={lesson.schedule_id}>
+                                        {idx === 1 && lessons.length === 2 && (
+                                          <div style={{ display: "flex", justifyContent: "center", margin: "2px 0" }}>
+                                            <button
+                                              title="Поменять подгруппы местами"
+                                              onClick={async e => {
+                                                e.stopPropagation();
+                                                await fetch("/api/swap-subgroup", {
+                                                  method: "POST",
+                                                  headers: { "Content-Type": "application/json" },
+                                                  body: JSON.stringify({
+                                                    swapPairs: [
+                                                      { id: lessons[0].schedule_id, day: day, lesson_num: lessonNum, swapId: lessons[1].schedule_id },
+                                                      { id: lessons[1].schedule_id, day: day, lesson_num: lessonNum, swapId: lessons[0].schedule_id },
+                                                    ],
+                                                    swapOrder: true
+                                                  })
+                                                });
+                                                await fetchSchedule();
+                                              }}
+                                              style={{ background: "var(--sv-bg)", border: "1.5px solid var(--sv-border)", borderRadius: 20, padding: "3px 12px", cursor: "pointer", fontSize: 16, color: "var(--sv-blue)", display: "flex", alignItems: "center", gap: 4, fontWeight: 700, transition: "all 0.15s" }}
+                                              onMouseEnter={e => { e.currentTarget.style.background = "var(--sv-blue-soft)"; e.currentTarget.style.borderColor = "var(--sv-blue)"; }}
+                                              onMouseLeave={e => { e.currentTarget.style.background = "var(--sv-bg)"; e.currentTarget.style.borderColor = "var(--sv-border)"; }}
+                                            >
+                                              ⇅
+                                            </button>
+                                          </div>
+                                        )}
                                         <div
-                                          key={lesson.schedule_id}
                                           className="sv-lesson"
-                                          style={{ marginBottom: idx < lessons.length - 1 ? 6 : 0 }}
+                                          style={{ marginBottom: idx < lessons.length - 1 ? 2 : 0 }}
                                           draggable
                                           onDragStart={e => {
                                             e.dataTransfer.effectAllowed = "move";
-                                            if (lessons.length === 1) { e.dataTransfer.setData("text/plain", JSON.stringify({ type: "single", schedule_id: lesson.schedule_id, day, lesson_num: lessonNum })); return; }
-                                            e.dataTransfer.setData("text/plain", JSON.stringify({ type: "group", items: lessons.map(l => ({ schedule_id: l.schedule_id, day, lesson_num: lessonNum })) }));
+                                            e.dataTransfer.setData("text/plain", JSON.stringify({ type: "single", schedule_id: lesson.schedule_id, day, lesson_num: lessonNum, isInGroup: lessons.length > 1, groupItems: lessons.map(l => ({ schedule_id: l.schedule_id, day, lesson_num: lessonNum })) }));
                                           }}
                                         >
                                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 5, marginBottom: 5 }}>
@@ -1018,6 +1076,7 @@ export default function ScheduleView() {
                                             })}
                                           </select>
                                         </div>
+                                        </div>
                                       );
                                     })
                                   )}
@@ -1094,7 +1153,89 @@ export default function ScheduleView() {
           </div>
         )}
 
-        {/* ── SNAPSHOT MODAL ── */}
+        {/* ── SWAP SUBGROUP MENU ── */}
+        {swapMenu && (() => {
+          const { draggedLesson, targetLessons, day, lessonNum, srcLessons: savedSrcLessons, draggedIdx: savedDraggedIdx } = swapMenu;
+          const srcLessons = (savedSrcLessons && savedSrcLessons.length > 0)
+            ? savedSrcLessons
+            : (currentClass.days[draggedLesson.day]?.filter(l => l.lesson_num === draggedLesson.lesson_num) || []);
+          const draggedIdx = (savedDraggedIdx !== undefined && savedDraggedIdx >= 0)
+            ? savedDraggedIdx
+            : srcLessons.findIndex(l => l.schedule_id === draggedLesson.schedule_id);
+          const draggedSubgroupNum = draggedIdx >= 0 ? draggedIdx + 1 : 1;
+          const otherSrcIdx = draggedIdx === 0 ? 1 : 0;
+          const matchedTarget = targetLessons[draggedIdx >= 0 ? draggedIdx : 0] || targetLessons[0];
+          const otherTarget = targetLessons[draggedIdx === 0 ? 1 : 0] || targetLessons.find(l => l !== matchedTarget);
+          const otherSrc = srcLessons[otherSrcIdx];
+          const draggedSubject = draggedLesson.subject || "Урок";
+          const matchedSubject = matchedTarget?.subject || "Урок";
+          return (
+            <div className="sv-overlay" onClick={() => setSwapMenu(null)}>
+              <div style={{ background: "white", borderRadius: 14, padding: 28, minWidth: 340, maxWidth: 460, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontWeight: 700, fontSize: 17, color: "var(--sv-navy)", marginBottom: 6 }}>Как поменять местами?</div>
+                <div style={{ color: "var(--sv-text3)", fontSize: 14, marginBottom: 20 }}>Вы перетаскиваете урок из подгруппы на ячейку с двумя подгруппами. Выберите вариант:</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button
+                    style={{ padding: "12px 16px", borderRadius: 10, border: "1.5px solid var(--sv-border)", background: "var(--sv-bg)", cursor: "pointer", textAlign: "left", fontSize: 14, fontWeight: 500 }}
+                    onClick={async () => {
+                      // Атомарный свап только этой подгруппы с соответствующей в цели
+                      await fetch("/api/swap-subgroup", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          swapPairs: [
+                            { id: draggedLesson.schedule_id, day: day, lesson_num: lessonNum },
+                            { id: matchedTarget.schedule_id, day: draggedLesson.day, lesson_num: draggedLesson.lesson_num },
+                          ]
+                        })
+                      });
+                      await fetchSchedule();
+                      setSwapMenu(null);
+                    }}
+                  >
+                    🔄 Поменять только Подгруппу {draggedSubgroupNum}
+                    <div style={{ fontWeight: 400, color: "var(--sv-text3)", fontSize: 12, marginTop: 3 }}>
+                      {draggedSubject} ↔ {matchedSubject}, другие подгруппы остаются
+                    </div>
+                  </button>
+                  {otherSrc && otherTarget && (
+                    <button
+                      style={{ padding: "12px 16px", borderRadius: 10, border: "1.5px solid var(--sv-border)", background: "var(--sv-bg)", cursor: "pointer", textAlign: "left", fontSize: 14, fontWeight: 500 }}
+                      onClick={async () => {
+                        // Атомарный свап обеих подгрупп
+                        await fetch("/api/swap-subgroup", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            swapPairs: [
+                              { id: draggedLesson.schedule_id, day: day, lesson_num: lessonNum },
+                              { id: otherSrc.schedule_id, day: day, lesson_num: lessonNum },
+                              { id: matchedTarget.schedule_id, day: draggedLesson.day, lesson_num: draggedLesson.lesson_num },
+                              { id: otherTarget.schedule_id, day: draggedLesson.day, lesson_num: draggedLesson.lesson_num },
+                            ]
+                          })
+                        });
+                        await fetchSchedule();
+                        setSwapMenu(null);
+                      }}
+                    >
+                      🔀 Поменять весь урок целиком
+                      <div style={{ fontWeight: 400, color: "var(--sv-text3)", fontSize: 12, marginTop: 3 }}>
+                        Обе подгруппы поменяются местами между ячейками
+                      </div>
+                    </button>
+                  )}
+                  <button
+                    style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "none", cursor: "pointer", textAlign: "center", fontSize: 14, color: "var(--sv-text3)" }}
+                    onClick={() => setSwapMenu(null)}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {snapshotModal && (
           <div className="sv-overlay">
             <div className="sv-modal sv-modal-lg sv-modal-enter">
