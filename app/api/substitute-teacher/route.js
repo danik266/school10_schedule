@@ -44,7 +44,7 @@ function getWeekdaysInRange(startDate, endDate) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { teacherId, startDate, endDate, duties = [] } = body;
+    const { teacherId, startDate, endDate, duties = [], manualSubstituteId } = body;
 
     if (!teacherId || !startDate || !endDate) {
       return NextResponse.json(
@@ -87,10 +87,35 @@ export async function POST(request) {
     });
 
     if (sickLessons.length === 0) {
-      return NextResponse.json({
-        success: false,
-        message: `У учителя ${sickTeacher.full_name} нет уроков в указанный период (${absentDays.join(", ")})`,
-      });
+      // Check if there is ANY schedule at all
+      const totalScheduleCount = await prisma.schedule.count();
+      if (totalScheduleCount === 0) {
+        // Schedule is not generated yet. Just mark as sick so the generator will handle it.
+        await prisma.substitute_logs.create({
+          data: {
+            sick_teacher_id:   teacherIdNum,
+            sick_teacher_name: sickTeacher.full_name,
+            start_date:        startDate,
+            end_date:          endDate,
+            status:            "success",
+            total_lessons:     0,
+            substituted:       0,
+            failed:            0,
+            details:           { message: "Marked absent before generation", manualSubstituteId: manualSubstituteId || null },
+          },
+        });
+        return NextResponse.json({
+          success: true,
+          message: `Расписание еще не сгенерировано. Учитель ${sickTeacher.full_name} отмечен как отсутствующий. Замены будут подобраны автоматически при генерации расписания.`,
+          substitutions: [],
+          failed: [],
+        });
+      } else {
+        return NextResponse.json({
+          success: false,
+          message: `У учителя ${sickTeacher.full_name} нет уроков в указанный период (${absentDays.join(", ")})`,
+        });
+      }
     }
 
     // 4. For each lesson, find a free substitute teacher
@@ -193,30 +218,40 @@ export async function POST(request) {
     for (const lesson of sickLessons) {
       const lessonSubjectName = lesson.subjects?.name || "";
 
-      // Priority 1: same subject teachers, исключаем тех кто сам сейчас на замене или дежурстве
-      const sameSubjectTeachers = allTeachers.filter(
-        (t) =>
-          t.teacher_id !== teacherIdNum &&
-          !currentSubstituteIds.has(t.teacher_id) &&
-          !(dutyUnavailableByDay[lesson.day_of_week]?.has(t.teacher_id)) &&
-          subjectMatches(t.subject, lessonSubjectName)
-      );
-
-      let freeTeacher = sameSubjectTeachers.find((t) =>
-        isFree(t, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id)
-      );
-
-      // Priority 2: fallback — ANY teacher who is free at this slot
-      // (они могут присматривать даже если не того же предмета),
-      // но тоже исключаем тех кто сам на замене или дежурстве
-      if (!freeTeacher) {
-        freeTeacher = allTeachers.find(
+      let freeTeacher = null;
+      if (manualSubstituteId) {
+        const manualT = allTeachers.find(t => t.teacher_id === Number(manualSubstituteId));
+        if (manualT && isFree(manualT, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id) && 
+            !currentSubstituteIds.has(manualT.teacher_id) && 
+            !(dutyUnavailableByDay[lesson.day_of_week]?.has(manualT.teacher_id))) {
+          freeTeacher = manualT;
+        }
+      } else {
+        // Priority 1: same subject teachers, исключаем тех кто сам сейчас на замене или дежурстве
+        const sameSubjectTeachers = allTeachers.filter(
           (t) =>
             t.teacher_id !== teacherIdNum &&
             !currentSubstituteIds.has(t.teacher_id) &&
             !(dutyUnavailableByDay[lesson.day_of_week]?.has(t.teacher_id)) &&
-            isFree(t, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id)
+            subjectMatches(t.subject, lessonSubjectName)
         );
+
+        freeTeacher = sameSubjectTeachers.find((t) =>
+          isFree(t, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id)
+        );
+
+        // Priority 2: fallback — ANY teacher who is free at this slot
+        // (они могут присматривать даже если не того же предмета),
+        // но тоже исключаем тех кто сам на замене или дежурстве
+        if (!freeTeacher) {
+          freeTeacher = allTeachers.find(
+            (t) =>
+              t.teacher_id !== teacherIdNum &&
+              !currentSubstituteIds.has(t.teacher_id) &&
+              !(dutyUnavailableByDay[lesson.day_of_week]?.has(t.teacher_id)) &&
+              isFree(t, lesson.day_of_week, lesson.lesson_num, lesson.schedule_id)
+          );
+        }
       }
 
       if (freeTeacher) {

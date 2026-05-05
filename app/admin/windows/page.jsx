@@ -333,18 +333,13 @@ function SubstituteLogsTab() {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function WindowsPage() {
   const [teachers, setTeachers] = useState([]);
-  const [windows, setWindows]   = useState([]);
-  const [settings, setSettings] = useState({
-    max_lessons_junior: 8, max_lessons_senior: 9,
-    hard_subjects_first: true, allow_windows: false, max_windows_per_day: 1,
-  });
-  const [loadingSettings, setLoadingSettings] = useState(true);
-  const [saving, setSaving]     = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState("settings");
   const [message, setMessage]   = useState({ text: "", type: "" });
-  const emptyForm = { teacher_id: "", day: "", lesson_from: "", lesson_to: "", reason: "", is_fixed: false };
-  const [form, setForm] = useState(emptyForm);
+  
+  const [sickTeacherId, setSickTeacherId] = useState("");
+  const [manualSubId, setManualSubId] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [isSubstituting, setIsSubstituting] = useState(false);
 
   const showMsg = (text, type = "success") => {
     setMessage({ text, type });
@@ -353,72 +348,23 @@ export default function WindowsPage() {
 
   useEffect(() => {
     fetch("/api/teachers").then(r => r.json()).then(d => setTeachers(Array.isArray(d) ? d : [])).catch(() => {});
-    const sw = localStorage.getItem("schedule_windows");
-    setWindows(sw ? JSON.parse(sw) : []);
-    fetch("/api/settings").then(r => r.json()).then(d => {
-      setSettings(prev => ({ ...prev, ...d }));
-    }).catch(() => {}).finally(() => setLoadingSettings(false));
   }, []);
 
-  const saveSettings = async () => {
-    setSaving(true);
+  const handleSubstitute = async () => {
+    if (!sickTeacherId || !startDate || !endDate) { showMsg("Выберите учителя и укажите период!", "error"); return; }
+    if (new Date(endDate) < new Date(startDate)) { showMsg("Дата окончания не может быть раньше даты начала!", "error"); return; }
+    setIsSubstituting(true);
     try {
-      const res  = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
+      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
+      const payload = { teacherId: sickTeacherId, startDate, endDate, duties };
+      if (manualSubId) payload.manualSubstituteId = manualSubId;
+      const res = await fetch("/api/substitute-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
-      if (data.success) showMsg("✅ Настройки сохранены и будут применены при генерации расписания");
-      else showMsg("❌ Ошибка сохранения", "error");
-    } catch {
-      localStorage.setItem("schedule_settings", JSON.stringify(settings));
-      showMsg("✅ Настройки сохранены локально");
-    }
-    setSaving(false);
+      if (data.success) { showMsg(data.message || "Замены успешно найдены и применены!", "success"); setSickTeacherId(""); setManualSubId(""); setStartDate(""); setEndDate(""); }
+      else showMsg(data.message || data.error || "Ошибка при поиске замены", "error");
+    } catch { showMsg("Ошибка сети", "error"); }
+    finally { setIsSubstituting(false); }
   };
-
-  const handleAddWindow = () => {
-    if (!form.teacher_id) return showMsg("⚠️ Выберите учителя", "error");
-    if (!form.day) return showMsg("⚠️ Выберите день", "error");
-    if (!form.lesson_from || !form.lesson_to) return showMsg("⚠️ Укажите уроки", "error");
-    if (Number(form.lesson_from) > Number(form.lesson_to)) return showMsg("⚠️ Начало не может быть позже конца", "error");
-    const teacher = teachers.find(t => t.teacher_id === Number(form.teacher_id));
-    const nw = {
-      id: Date.now(),
-      teacher_id: Number(form.teacher_id),
-      teacher_name: teacher?.full_name || "—",
-      day: form.day,
-      lesson_from: Number(form.lesson_from),
-      lesson_to: Number(form.lesson_to),
-      reason: form.reason || "Перепад",
-      is_fixed: form.is_fixed,
-    };
-    const updated = [...windows, nw];
-    setWindows(updated);
-    localStorage.setItem("schedule_windows", JSON.stringify(updated));
-    setForm(emptyForm);
-    setShowForm(false);
-    showMsg("✅ Перепад добавлен");
-  };
-
-  const handleDelete = id => {
-    const updated = windows.filter(w => w.id !== id);
-    setWindows(updated);
-    localStorage.setItem("schedule_windows", JSON.stringify(updated));
-  };
-
-  const grouped = {};
-  windows.forEach(w => {
-    if (!grouped[w.teacher_id]) grouped[w.teacher_id] = { teacher_name: w.teacher_name, entries: [] };
-    grouped[w.teacher_id].entries.push(w);
-  });
-
-  const TABS = [
-    { key: "settings",     label: "⚙️ Настройки расписания" },
-    { key: "substitutes",  label: "🔄 Замены учителей"       },
-    { key: "windows",      label: "🪟 Перепады"              },
-  ];
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
@@ -427,16 +373,8 @@ export default function WindowsPage() {
           <h1 className="text-3xl font-bold text-[#0d254c] flex items-center gap-3">
             <Settings size={32}/> Расписание и замены
           </h1>
-          <p className="text-gray-500 mt-1">Настройки расписания, журнал замен и перепады учителей</p>
+          <p className="text-gray-500 mt-1">Журнал замен и поиск временной замены для учителя</p>
         </div>
-        {activeTab === "windows" && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-[#0d254c] text-white px-6 py-3 rounded-xl hover:bg-blue-800 transition font-semibold shadow"
-          >
-            <Plus size={18}/> Добавить перепад
-          </button>
-        )}
       </div>
 
       {message.text && (
@@ -447,236 +385,45 @@ export default function WindowsPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition ${
-              activeTab === tab.key
-                ? "bg-[#0d254c] text-white shadow"
-                : "bg-white text-gray-600 border border-gray-200 hover:border-[#0d254c]"
-            }`}
-          >
-            {tab.label}
+      {/* Substitute Panel */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-red-500"><RefreshCw size={24} /></span>
+          <div>
+            <div className="text-lg font-bold text-[#0d254c]">Режим замены</div>
+            <div className="text-sm text-gray-500">Назначьте свободного учителя на период отсутствия (до генерации расписания)</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Кого заменяем *</label>
+            <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#0d254c]" value={sickTeacherId} onChange={e => { setSickTeacherId(e.target.value); setManualSubId(""); }}>
+              <option value="">— Выберите учителя —</option>
+              {teachers.map(t => <option key={t.teacher_id} value={t.teacher_id}>{t.full_name} ({t.subject})</option>)}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Кем заменяем (опционально)</label>
+            <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#0d254c]" value={manualSubId} onChange={e => setManualSubId(e.target.value)} disabled={!sickTeacherId}>
+              <option value="">— Авто-подбор —</option>
+              {teachers.filter(t => t.teacher_id.toString() !== sickTeacherId.toString()).map(t => <option key={t.teacher_id} value={t.teacher_id}>{t.full_name} ({t.subject})</option>)}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Дата с</label>
+            <input type="date" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#0d254c]" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Дата по</label>
+            <input type="date" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#0d254c]" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          </div>
+          <button className="bg-[#0d254c] hover:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-xl transition flex items-center gap-2 h-[46px]" disabled={isSubstituting} onClick={handleSubstitute}>
+            {isSubstituting ? <><RefreshCw size={18} className="animate-spin"/> Сохраняем...</> : <><Save size={18}/> Сохранить замену</>}
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* ─── Settings tab ─── */}
-      {activeTab === "settings" && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 max-w-2xl">
-          <h2 className="text-xl font-bold text-[#0d254c] mb-6">Общие настройки расписания</h2>
-          {loadingSettings ? (
-            <div className="flex items-center gap-3 py-8">
-              <RefreshCw className="animate-spin text-[#0d254c]" size={24}/>
-              <span className="text-gray-500">Загрузка настроек...</span>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-semibold text-gray-800">Максимум уроков (1–9 классы)</div>
-                  <div className="text-sm text-gray-500 mt-0.5">Обычно не более 8 уроков в день</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {[6,7,8].map(n => (
-                    <button key={n} onClick={() => setSettings(s => ({ ...s, max_lessons_junior: n }))}
-                      className={`w-10 h-10 rounded-xl font-bold text-sm transition ${settings.max_lessons_junior === n ? "bg-[#0d254c] text-white" : "bg-white border border-gray-300 text-gray-600 hover:border-[#0d254c]"}`}>
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-semibold text-gray-800">Максимум уроков (10–11 классы)</div>
-                  <div className="text-sm text-gray-500 mt-0.5">Для старших классов допустимо 9 уроков</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {[7,8,9].map(n => (
-                    <button key={n} onClick={() => setSettings(s => ({ ...s, max_lessons_senior: n }))}
-                      className={`w-10 h-10 rounded-xl font-bold text-sm transition ${settings.max_lessons_senior === n ? "bg-[#0d254c] text-white" : "bg-white border border-gray-300 text-gray-600 hover:border-[#0d254c]"}`}>
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-sm text-amber-800">
-                <Info size={18} className="shrink-0 mt-0.5"/>
-                <span>Эти настройки применяются при <strong>автоматической генерации расписания</strong>. Сложные предметы (отмеченные примечанием) ставятся в первую половину дня.</span>
-              </div>
-
-              <button onClick={saveSettings} disabled={saving}
-                className="flex items-center justify-center gap-2 bg-[#0d254c] text-white py-3 rounded-xl font-semibold hover:bg-blue-800 transition disabled:opacity-50 shadow">
-                {saving ? <RefreshCw className="animate-spin" size={18}/> : <Save size={18}/>}
-                {saving ? "Сохранение..." : "Сохранить настройки"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─── Substitutes tab ─── */}
-      {activeTab === "substitutes" && <SubstituteLogsTab/>}
-
-      {/* ─── Windows tab ─── */}
-      {activeTab === "windows" && (
-        <>
-          {showForm && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl">
-                <div className="p-6 border-b flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-[#0d254c]">Новый перепад (окно)</h2>
-                  <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-700"><X size={24}/></button>
-                </div>
-                <div className="p-6 flex flex-col gap-4">
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 block mb-2">Учитель *</label>
-                    <select value={form.teacher_id} onChange={e => setForm(p => ({ ...p, teacher_id: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0d254c]">
-                      <option value="">-- Выберите учителя --</option>
-                      {teachers.map(t => <option key={t.teacher_id} value={t.teacher_id}>{t.full_name}</option>)}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 block mb-2">День *</label>
-                    <div className="flex gap-2">
-                      {DAYS.map(d => (
-                        <button key={d.key} type="button" onClick={() => setForm(p => ({ ...p, day: d.key }))}
-                          className={`flex-1 py-2 rounded-xl font-semibold text-sm transition border-2 ${form.day === d.key ? "bg-[#0d254c] text-white border-[#0d254c]" : "bg-white text-gray-600 border-gray-200 hover:border-[#0d254c]"}`}>
-                          {d.short}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-sm font-semibold text-gray-700 block mb-2">С урока *</label>
-                      <select value={form.lesson_from} onChange={e => setForm(p => ({ ...p, lesson_from: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0d254c]">
-                        <option value="">— Урок —</option>
-                        {Array.from({ length: MAX_LESSONS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} урок</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-sm font-semibold text-gray-700 block mb-2">По урок *</label>
-                      <select value={form.lesson_to} onChange={e => setForm(p => ({ ...p, lesson_to: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0d254c]">
-                        <option value="">— Урок —</option>
-                        {Array.from({ length: MAX_LESSONS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} урок</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 block mb-2">Причина</label>
-                    <input type="text" placeholder="Например: совещание, личные обстоятельства..." value={form.reason}
-                      onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0d254c]"/>
-                  </div>
-
-                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-blue-50 rounded-xl">
-                    <input type="checkbox" checked={form.is_fixed} onChange={e => setForm(p => ({ ...p, is_fixed: e.target.checked }))} className="w-5 h-5 accent-[#0d254c]"/>
-                    <div>
-                      <div className="font-medium text-gray-800">Постоянный перепад (каждую неделю)</div>
-                      <div className="text-xs text-gray-500">Учитель всегда свободен в это время</div>
-                    </div>
-                  </label>
-
-                  <div className="flex gap-3 pt-2">
-                    <button onClick={handleAddWindow} className="flex-1 bg-[#0d254c] text-white py-3 rounded-xl font-semibold hover:bg-blue-800 transition flex items-center justify-center gap-2">
-                      <Save size={18}/> Добавить
-                    </button>
-                    <button onClick={() => setShowForm(false)} className="flex-1 border border-gray-300 py-3 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition">Отмена</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {windows.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
-              <Settings size={48} className="mx-auto mb-4 opacity-30"/>
-              <p className="text-xl font-medium">Перепадов нет</p>
-              <p className="text-sm mt-2">Добавьте окна в расписании учителей</p>
-              <button onClick={() => setShowForm(true)} className="mt-4 bg-[#0d254c] text-white px-6 py-2 rounded-xl hover:bg-blue-800 transition text-sm font-semibold">+ Добавить</button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {Object.entries(grouped).map(([tid, group]) => (
-                <div key={tid} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="p-4 bg-[#0d254c]/5 border-b border-gray-100 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#0d254c] text-white flex items-center justify-center font-bold">{group.teacher_name?.[0] || "?"}</div>
-                    <div>
-                      <div className="font-semibold text-gray-900">{group.teacher_name}</div>
-                      <div className="text-xs text-gray-500">{group.entries.length} перепад(ов)</div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 overflow-x-auto">
-                    <table className="text-xs text-center">
-                      <thead>
-                        <tr>
-                          <th className="p-1 text-left text-gray-500 w-16">День</th>
-                          {Array.from({ length: MAX_LESSONS }, (_, i) => i + 1).map(n => (
-                            <th key={n} className="p-1 text-gray-500 w-9">{n}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {DAYS.map(day => {
-                          const dayWindows = group.entries.filter(w => w.day === day.key);
-                          const wSet = new Set();
-                          dayWindows.forEach(w => { for (let i = w.lesson_from; i <= w.lesson_to; i++) wSet.add(i); });
-                          return (
-                            <tr key={day.key}>
-                              <td className="p-1 text-left text-gray-600 font-medium">{day.short}</td>
-                              {Array.from({ length: MAX_LESSONS }, (_, i) => i + 1).map(n => (
-                                <td key={n} className="p-0.5">
-                                  <div className={`w-8 h-6 rounded mx-auto ${wSet.has(n) ? "bg-red-200 border border-red-400" : "bg-green-100 border border-green-200"}`}/>
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 border border-red-400 inline-block"/> Окно</span>
-                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-200 inline-block"/> Доступно</span>
-                    </div>
-                  </div>
-
-                  <div className="border-t border-gray-100 divide-y divide-gray-50">
-                    {group.entries.map(win => {
-                      const dayLabel = DAYS.find(d => d.key === win.day)?.label;
-                      return (
-                        <div key={win.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition">
-                          <div className="flex items-center gap-4">
-                            <Clock size={14} className="text-gray-400"/>
-                            <span className="font-semibold text-gray-800">{dayLabel}</span>
-                            <span className="text-sm text-gray-600">
-                              {win.lesson_from === win.lesson_to ? `${win.lesson_from} урок` : `${win.lesson_from}–${win.lesson_to} уроки`}
-                            </span>
-                            <span className="text-sm text-gray-500">{win.reason}</span>
-                            {win.is_fixed && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Постоянный</span>}
-                          </div>
-                          <button onClick={() => handleDelete(win.id)} className="text-red-400 hover:text-red-600 transition p-1 rounded-lg hover:bg-red-50"><Trash2 size={16}/></button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+      <SubstituteLogsTab />
     </div>
   );
 }

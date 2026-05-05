@@ -13,8 +13,12 @@ export async function GET(req) {
 
     const rows = await prisma.study_plan.findMany({
       where: { class_id: classId },
-      include: { subjects: { select: { name: true } } },
-      orderBy: { study_plan_id: "asc" },
+      include: { subjects: { select: { name: true, type: true } } },
+      orderBy: [
+        // Сначала обязательные, потом факультативы
+        { subjects: { type: "asc" } },
+        { study_plan_id: "asc" },
+      ],
     });
 
     return Response.json({ success: true, rows });
@@ -43,21 +47,27 @@ export async function PATCH(req) {
   }
 }
 
-// POST — добавить предмет в план
+// POST — добавить предмет в план (поддержка факультативов через is_optional)
 export async function POST(req) {
   try {
-    const { class_id, subject_name, hours_per_week, hours_per_year } = await req.json();
+    const { class_id, subject_name, hours_per_week, hours_per_year, is_optional } = await req.json();
     if (!class_id || !subject_name) {
       return Response.json({ error: "class_id и subject_name обязательны" }, { status: 400 });
     }
 
+    const subjectType = is_optional ? "optional" : "required";
+
+    // Ищем предмет с таким именем И типом (чтобы факультатив не конфликтовал с обязательным)
     let subject = await prisma.subjects.findFirst({
-      where: { name: { equals: subject_name.trim(), mode: "insensitive" } },
+      where: {
+        name: { equals: subject_name.trim(), mode: "insensitive" },
+        type: subjectType,
+      },
     });
 
     if (!subject) {
       subject = await prisma.subjects.create({
-        data: { name: subject_name.trim() },
+        data: { name: subject_name.trim(), type: subjectType },
       });
     }
 
@@ -75,7 +85,7 @@ export async function POST(req) {
         hours_per_week: Number(hours_per_week) || 1,
         hours_per_year: Number(hours_per_year) || 34,
       },
-      include: { subjects: { select: { name: true } } },
+      include: { subjects: { select: { name: true, type: true } } },
     });
 
     return Response.json({ success: true, row });

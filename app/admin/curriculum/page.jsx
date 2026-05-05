@@ -49,7 +49,10 @@ function PlanRow({ row, actual, onSave, onDelete }) {
   return (
     <tr className={`border-b border-gray-100 ${!ok ? "bg-red-50/30" : ""}`}>
       <td className="p-3 font-medium">
-        {row.subjects.name}
+        <span>{row.subjects.name}</span>
+        {row.subjects.type === "optional" && (
+          <span className="ml-2 text-xs font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">факультатив</span>
+        )}
         {planned % 1 !== 0 && <span className="ml-2 text-xs text-gray-400">(чередование)</span>}
       </td>
       <td className="p-3">
@@ -101,10 +104,11 @@ function PlanRow({ row, actual, onSave, onDelete }) {
   );
 }
 
-function AddRow({ classId, onAdded, onCancel }) {
+function AddRow({ classId, onAdded, onCancel, defaultOptional = false }) {
   const [subjectName, setSubjectName] = useState("");
-  const [hw, setHw] = useState("1");
-  const [hy, setHy] = useState("34");
+  const [hw, setHw] = useState(defaultOptional ? "1" : "1");
+  const [hy, setHy] = useState(defaultOptional ? "34" : "34");
+  const [isOptional, setIsOptional] = useState(defaultOptional);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -115,7 +119,7 @@ function AddRow({ classId, onAdded, onCancel }) {
       const res = await fetch("/api/study-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ class_id: classId, subject_name: subjectName.trim(), hours_per_week: Number(hw), hours_per_year: Number(hy) }),
+        body: JSON.stringify({ class_id: classId, subject_name: subjectName.trim(), hours_per_week: Number(hw), hours_per_year: Number(hy), is_optional: isOptional }),
       });
       const data = await res.json();
       if (!data.success) setErr(data.error || "Ошибка");
@@ -125,14 +129,21 @@ function AddRow({ classId, onAdded, onCancel }) {
   };
 
   return (
-    <tr className="border-b border-blue-100 bg-blue-50/40">
+    <tr className={`border-b ${isOptional ? "border-purple-100 bg-purple-50/30" : "border-blue-100 bg-blue-50/40"}`}>
       <td className="p-3">
-        <input autoFocus
-          className="border border-gray-300 rounded p-1.5 w-full text-sm focus:outline-none focus:ring-1 focus:ring-[#0d254c]"
-          placeholder="Название предмета"
-          value={subjectName} onChange={(e) => setSubjectName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") onCancel(); }} />
-        {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+        <div className="flex flex-col gap-1.5">
+          <input autoFocus
+            className="border border-gray-300 rounded p-1.5 w-full text-sm focus:outline-none focus:ring-1 focus:ring-[#0d254c]"
+            placeholder={isOptional ? "Название факультатива" : "Название предмета"}
+            value={subjectName} onChange={(e) => setSubjectName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") onCancel(); }} />
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+            <input type="checkbox" checked={isOptional} onChange={(e) => setIsOptional(e.target.checked)}
+              className="accent-purple-600 w-3.5 h-3.5" />
+            <span className={isOptional ? "text-purple-700 font-medium" : ""}>Факультатив</span>
+          </label>
+          {err && <p className="text-red-500 text-xs">{err}</p>}
+        </div>
       </td>
       <td className="p-3">
         <input type="number" step="0.5" min="0.5"
@@ -166,6 +177,7 @@ function ClassBlock({ cls, preloadedStats, onStatsUpdate, isExpanded, onToggle }
   const [localStats, setLocalStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showAddRow, setShowAddRow] = useState(false);
+  const [addOptional, setAddOptional] = useState(false);
 
   // stats = локальные (после редактирования) или preloaded
   const stats = localStats ?? preloadedStats;
@@ -310,7 +322,7 @@ function ClassBlock({ cls, preloadedStats, onStatsUpdate, isExpanded, onToggle }
                       onSave={handleSave} onDelete={handleDelete} />
                   ))}
                   {showAddRow && (
-                    <AddRow classId={cls.class_id} onAdded={handleAdded} onCancel={() => setShowAddRow(false)} />
+                    <AddRow classId={cls.class_id} onAdded={handleAdded} onCancel={() => setShowAddRow(false)} defaultOptional={addOptional} />
                   )}
                 </tbody>
                 {planRows && planRows.length > 0 && (
@@ -335,10 +347,14 @@ function ClassBlock({ cls, preloadedStats, onStatsUpdate, isExpanded, onToggle }
                 )}
               </table>
               {!showAddRow && (
-                <div className="p-3 border-t border-gray-100">
-                  <button onClick={() => setShowAddRow(true)}
+                <div className="p-3 border-t border-gray-100 flex gap-2">
+                  <button onClick={() => { setAddOptional(false); setShowAddRow(true); }}
                     className="flex items-center gap-2 px-3 py-2 text-sm text-[#0d254c] border border-[#0d254c]/30 rounded-lg hover:bg-blue-50 transition font-medium">
                     <Plus size={15} /> Добавить предмет
+                  </button>
+                  <button onClick={() => { setAddOptional(true); setShowAddRow(true); }}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-50 transition font-medium">
+                    <Plus size={15} /> Добавить факультатив
                   </button>
                 </div>
               )}

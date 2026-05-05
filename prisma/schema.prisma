@@ -23,13 +23,17 @@ model cabinets {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model classes {
-  class_id       Int          @id @default(autoincrement())
-  class_name     String       @db.VarChar(50)
+  class_id       Int              @id @default(autoincrement())
+  class_name     String           @db.VarChar(50)
   students_count Int?
-  class_type     String?      @db.VarChar(50)
-  room_number    String?      @db.VarChar(10)
+  class_type     String?          @db.VarChar(50)
+  room_number    String?          @db.VarChar(10)
+  letter         String?          @db.VarChar(5)
+  parallel       Int?
+  class_subjects class_subjects[]
   schedule       schedule[]
   study_plan     study_plan[]
+  teachers       teachers[]
 }
 
 model study_plan {
@@ -43,20 +47,26 @@ model study_plan {
 }
 
 model subjects {
-  subject_id Int          @id @default(autoincrement())
-  name       String
-  type       String?      @default("required") @db.VarChar(20)
-  schedule   schedule[]
-  study_plan study_plan[]
+  subject_id     Int              @id @default(autoincrement())
+  name           String
+  type           String?          @default("required") @db.VarChar(20)
+  is_elective    Boolean          @default(false)
+  class_subjects class_subjects[]
+  schedule       schedule[]
+  study_plan     study_plan[]
 }
 
 model teachers {
-  teacher_id Int        @id @default(autoincrement())
-  full_name  String     @db.VarChar(100)
-  subject    String     @db.VarChar(50)
-  classroom  String?    @db.VarChar(20)
-  nuances    String?    @db.VarChar(50)
-  schedule   schedule[]
+  teacher_id        Int              @id @default(autoincrement())
+  full_name         String           @db.VarChar(100)
+  subject           String           @db.VarChar(50)
+  classroom         String?          @db.VarChar(20)
+  nuances           String?          @db.VarChar(50)
+  homeroom_class_id Int?
+  class_subjects    class_subjects[]
+  schedule          schedule[]
+  substitutions     substitutions[]
+  homeroom_class    classes?         @relation(fields: [homeroom_class_id], references: [class_id], onUpdate: NoAction, map: "fk_teacher_homeroom_class")
 }
 
 model schedule {
@@ -94,4 +104,26 @@ model schedule_snapshots {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   rows_count Int      @default(0)
   data       Json
+}
+
+model class_subjects {
+  id            Int             @id @default(autoincrement())
+  class_id      Int
+  subject_id    Int
+  teacher_id    Int
+  group_type    String          @default("full_class") @db.VarChar(50)
+  classes       classes         @relation(fields: [class_id], references: [class_id], onDelete: Cascade)
+  subjects      subjects        @relation(fields: [subject_id], references: [subject_id], onDelete: Cascade)
+  teachers      teachers        @relation(fields: [teacher_id], references: [teacher_id], onDelete: Cascade)
+  substitutions substitutions[]
+}
+
+model substitutions {
+  id               Int            @id @default(autoincrement())
+  class_subject_id Int
+  substitute_id    Int
+  date             DateTime       @db.Date
+  reason           String?        @db.VarChar(255)
+  class_subjects   class_subjects @relation(fields: [class_subject_id], references: [id], onDelete: Cascade)
+  substitute       teachers       @relation(fields: [substitute_id], references: [teacher_id], onDelete: Cascade)
 }

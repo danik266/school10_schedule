@@ -48,27 +48,98 @@ const getRooms = (sn, cabinets, sub=false) => {
 };
 
 const matchT = (sn, ts) => {
-  const s=sn.toLowerCase(), t=ts.toLowerCase();
-  if(s===t||s.includes(t)||t.includes(s)) return true;
-  const G=[["математик","алгебр","геометр"],["қазақ тілі","қазақ тіл","қазақ әдеб","казахск"],["орыс тілі","орыс тіл","русск","рус.яз","русский"],["ағылшын","шетел тіл","английск"],["информатик","ивт"],["дене шыны","физическ культ","физкульт"],["көркем еңбек","труд","технолог"],["биолог"],["тарих","истор"],["физик"],["химия","хими"],["геогр"],["музык"],["бейнелеу","изо"],["нвп","нпд","военн"],["жаратылыстану","природовед","жаратылыс"],["дүниеж"],["жаһандық","глобал","қузырет"],["физика – ғажайып","физика - ғажайып"]];
-  for(const g of G) if(g.some(k=>s.includes(k))&&g.some(k=>t.includes(k))) return true;
-  return false;
+  if(!sn || !ts) return false;
+  const s = sn.toLowerCase();
+  const tFull = ts.toLowerCase();
+  
+  // Split teacher subjects by common delimiters
+  const tSubjects = tFull.split(/[,\-\/;]+/).map(x => x.trim());
+
+  const G = [
+    ["математик", "алгебр", "геометр"],
+    ["қазақ тілі", "қазақ тіл", "қазақ әдеб", "казахск"],
+    ["орыс тілі", "орыс тіл", "русск", "рус.яз", "русский"],
+    ["ағылшын", "шетел тіл", "английск"],
+    ["информатик", "ивт"],
+    ["дене шыны", "физическ культ", "физкульт"],
+    ["көркем еңбек", "труд", "технолог"],
+    ["биолог"],
+    ["тарих", "истор"],
+    ["физик"],
+    ["химия", "хими"],
+    ["геогр"],
+    ["музык"],
+    ["бейнелеу", "изо"],
+    ["нвп", "нпд", "военн"],
+    ["жаратылыстану", "природовед", "жаратылыс"],
+    ["дүниеж"],
+    ["жаһандық", "глобал", "қузырет"],
+    ["физика – ғажайып", "физика - ғажайып"]
+  ];
+
+  const matchOne = (s1, s2) => {
+    if (s1 === s2 || s1.includes(s2) || s2.includes(s1)) return true;
+    for (const g of G) {
+      if (g.some(k => s1.includes(k)) && g.some(k => s2.includes(k))) return true;
+    }
+    return false;
+  };
+
+  return tSubjects.some(tsub => matchOne(s, tsub));
 };
+
+const normalizeSubject = (name) => {
+  const lower = name.toLowerCase().trim();
+  const aliases = {
+    "алгебра": "математика",
+    "геометрия": "математика",
+    "алгебра және анализ бастамалары": "математика",
+    "шетел тілі": "ағылшын тілі",
+    "foreign language": "ағылшын тілі",
+  };
+  return aliases[lower] || lower;
+};
+
 const nuanceOk = (t,day,num) => { const n=t.nuances; if(!n||n==="none")return true; if(n==="no_friday"&&day==="Friday")return false; if(n==="no_monday"&&day==="Monday")return false; if(n==="morning_only"&&num>4)return false; if(n==="afternoon_only"&&num<=4)return false; if(n==="no_first_lesson"&&num===1)return false; return true; };
 
 // hardBusy — "teacherId|day" которые НИКОГДА не берутся (дежурство/замена).
 let _hardBusy = new Set();
-const pickT = (sn, teachers, busy, day, num) => {
-  const avail = teachers.filter(t => !_hardBusy.has(`${t.teacher_id}|${day}`));
-  let c=avail.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id)&&nuanceOk(t,day,num));
+let _preferredSubs = {};
+const pickT = (sn, teachers, busy, day, num, assignedTeacherIds = []) => {
+  const avail = teachers.filter(t => !_hardBusy?.has(`${t.teacher_id}|${day}`));
+  
+  const prefId = _preferredSubs[sn.toLowerCase()] || _preferredSubs[normalizeSubject(sn)];
+  if (prefId) {
+    const t = avail.find(x => x.teacher_id === Number(prefId) && !busy.has(x.teacher_id) && nuanceOk(x, day, num));
+    if (t) return t;
+  }
+
+  if (assignedTeacherIds && assignedTeacherIds.length > 0) {
+    // Try to pick one of the assigned teachers who is free
+    for (const tId of assignedTeacherIds) {
+      const t = avail.find(x => x.teacher_id === tId && (!busy || !busy.has(x.teacher_id)) && nuanceOk(x, day, num));
+      if (t) return t;
+    }
+    // Try without nuance check
+    for (const tId of assignedTeacherIds) {
+      const t = avail.find(x => x.teacher_id === tId && (!busy || !busy.has(x.teacher_id)));
+      if (t) return t;
+    }
+    // Strictly enforce bindings. If busy, return null (causes a hole, handled later)
+    // BUT try one last time ignoring nuanceOk (windows/max lessons) to avoid holes
+    for (const tId of assignedTeacherIds) {
+      const t = avail.find(x => x.teacher_id === tId && (!busy || !busy.has(x.teacher_id)));
+      if (t) return t;
+    }
+    return null;
+  }
+
+  // 2. Old logic: Pick any teacher of the same subject (fallback if no bindings)
+  let c=avail.filter(t=>matchT(sn,t.subject)&&(!busy || !busy.has(t.teacher_id))&&nuanceOk(t,day,num));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=avail.filter(t=>matchT(sn,t.subject)&&!busy.has(t.teacher_id));
+  c=avail.filter(t=>matchT(sn,t.subject)&&(!busy || !busy.has(t.teacher_id)));
   if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=avail.filter(t=>matchT(sn,t.subject));
-  if(c.length) return c[Math.floor(Math.random()*c.length)];
-  c=avail.filter(t=>!busy.has(t.teacher_id));
-  if(c.length) return c[Math.floor(Math.random()*c.length)];
-  return avail[0]||null;
+  return null;
 };
 
 const shuf = a => { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
@@ -97,14 +168,17 @@ export async function POST(req) {
     const classes  = await prisma.classes.findMany({ include:{study_plan:{include:{subjects:true}}} });
     const teachers = await prisma.teachers.findMany();
     const cabinets = await prisma.cabinets.findMany();
+    const classSubjects = await prisma.class_subjects.findMany(); // Load bindings
     const year = new Date().getFullYear();
+
+    const getAssignedT = (cId, sId) => classSubjects.filter(cs => cs.class_id === cId && cs.subject_id === sId).map(cs => cs.teacher_id);
 
     // ── Глобальные занятости ─────────────────────────────────────────────────
     // tBusy[day][slot] = Set<teacher_id>
     // rCount[day][slot][room_id] = count
     const tBusy = {}; const rCount = {};
     for(const d of DAYS){ tBusy[d]={}; rCount[d]={};
-      for(let i=1;i<=10;i++){ tBusy[d][i]=new Set(); rCount[d][i]={}; } }
+      for(let i=1;i<=20;i++){ tBusy[d][i]=new Set(); rCount[d][i]={}; } }
 
     const useRoom = (day,slot,rid) => { rCount[day][slot][rid]=(rCount[day][slot][rid]||0)+1; };
     const gymCount = (day,slot) => gymCabs.reduce((sum,c)=>sum+(rCount[day][slot][c.room_id]||0),0);
@@ -139,7 +213,7 @@ export async function POST(req) {
       for (const day of dutyDays) {
         if (!tBusy[day]) continue;
         // Блокируем учителя на все слоты этого дня
-        for (let slot = 1; slot <= 10; slot++) {
+        for (let slot = 1; slot <= 20; slot++) {
           tBusy[day][slot].add(duty.teacher_id);
         }
       }
@@ -177,10 +251,19 @@ export async function POST(req) {
         _hardBusy.add(`${duty.teacher_id}|${day}`);
       }
     }
+    _preferredSubs = {};
     for (const log of activeSubstituteLogs) {
       // Больной учитель тоже не должен появляться в новом расписании
       if (log.sick_teacher_id) {
         for (const day of DAYS) _hardBusy.add(`${log.sick_teacher_id}|${day}`);
+        
+        if (log.details?.manualSubstituteId) {
+          const sickT = teachers.find(t => t.teacher_id === log.sick_teacher_id);
+          if (sickT) {
+            _preferredSubs[sickT.subject.toLowerCase()] = log.details.manualSubstituteId;
+            _preferredSubs[normalizeSubject(sickT.subject)] = log.details.manualSubstituteId;
+          }
+        }
       }
       const subs = log.details?.substitutions;
       if (!Array.isArray(subs)) continue;
@@ -228,6 +311,7 @@ export async function POST(req) {
     const tryAssign = (cls,sp,needed,canUse,useCounter,maxCount,getRoomFn) => {
       let done=0;
       const slots = shuf([...allSlots]);
+      const assigned = getAssignedT(cls.class_id, sp.subject_id);
       for(const {day,slot} of slots){
         if(done>=needed) break;
         if(useCounter[day][slot]>=maxCount) continue;
@@ -240,8 +324,8 @@ export async function POST(req) {
         if(!roomArr||roomArr.length===0) continue;
         // Берём первый свободный кабинет из пула
         const room = roomArr.find(r=>roomOk(day,slot,r)) || roomArr[0];
-        if(!roomOk(day,slot,room)) continue; // кабинет реально занят
-        const teacher = pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot);
+        if(!room || !roomOk(day,slot,room)) continue; // кабинет реально занят или не найден
+        const teacher = pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot, assigned);
         if(!teacher) continue;
         useCounter[day][slot]++;
         tBusy[day][slot].add(teacher.teacher_id);
@@ -267,10 +351,11 @@ export async function POST(req) {
           // Берём любой свободный зал (roomOk теперь смотрит суммарно)
           const gym=gymCabs.find(c=>roomOk(day,slot,c));
           if(!gym) continue;
-          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot);
+          const assigned = getAssignedT(cls.class_id, sp.subject_id);
+          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot, assigned);
           if(!teacher) continue;
           gymSC[day][slot]++;
-          tBusy[day][slot].add(teacher.teacher_id);
+          tBusy[day]?.[slot]?.add?.(teacher.teacher_id);
           useRoom(day,slot,gym.room_id);
           assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:teacher.teacher_id,room_id:gym.room_id});
           done++;
@@ -291,16 +376,19 @@ export async function POST(req) {
           if(assign[cls.class_id].some(a=>a.day===day&&a.slot===slot)) continue;
           if(assign[cls.class_id].some(a=>a.day===day&&a.subject_id===sp.subject_id)) continue;
           if(!keRoomBoys||!keRoomGirls) continue;
-          const t1=keMale||keTeachers[0]; if(!t1) continue;
-          if(tBusy[day][slot].has(t1.teacher_id)) continue;
-          const t2=keFemale.length?keFemale[keFIdx++%keFemale.length]:t1;
+          const assigned = getAssignedT(cls.class_id, sp.subject_id);
+          const t1_pool = keTeachers.filter(t => assigned.includes(t.teacher_id));
+          const t1=t1_pool[0] || keMale || keTeachers[0]; if(!t1) continue;
+          if(tBusy[day]?.[slot]?.has?.(t1.teacher_id)) continue;
+          const t2_pool = keTeachers.filter(t => assigned.includes(t.teacher_id) && t.teacher_id !== t1.teacher_id);
+          const t2=t2_pool[0] || (keFemale.length ? keFemale[keFIdx++%keFemale.length] : t1);
           keSC[day][slot]++;
-          tBusy[day][slot].add(t1.teacher_id);
-          if(t2&&t2.teacher_id!==t1.teacher_id) tBusy[day][slot].add(t2.teacher_id);
-          useRoom(day,slot,keRoomBoys.room_id);
-          useRoom(day,slot,keRoomGirls.room_id);
-          assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:t1.teacher_id,room_id:keRoomBoys.room_id});
-          assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:t2?t2.teacher_id:t1.teacher_id,room_id:keRoomGirls.room_id});
+          tBusy[day]?.[slot]?.add?.(t1.teacher_id);
+          if(t2&&t2.teacher_id!==t1.teacher_id) tBusy[day]?.[slot]?.add?.(t2.teacher_id);
+          if (keRoomBoys) useRoom(day,slot,keRoomBoys.room_id);
+          if (keRoomGirls) useRoom(day,slot,keRoomGirls.room_id);
+          if (keRoomBoys) assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:t1.teacher_id,room_id:keRoomBoys.room_id});
+          if (keRoomGirls) assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:t2?t2.teacher_id:t1.teacher_id,room_id:keRoomGirls.room_id});
           done++;
         }
       }
@@ -330,10 +418,11 @@ export async function POST(req) {
           // Берём свободный биокабинет
           const freeRoom=bioCabs.find(r=>(rCount[day][slot][r.room_id]||0)<1);
           if(!freeRoom) continue;
-          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot);
+          const assigned = getAssignedT(cls.class_id, sp.subject_id);
+          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot, assigned);
           if(!teacher) continue;
           bioSC[day][slot]++;
-          tBusy[day][slot].add(teacher.teacher_id);
+          tBusy[day]?.[slot]?.add?.(teacher.teacher_id);
           useRoom(day,slot,freeRoom.room_id);
           assign[cls.class_id].push({day,slot,subject_id:sp.subject_id,subject_name:sp.subjects.name,teacher_id:teacher.teacher_id,room_id:freeRoom.room_id});
           done++;
@@ -355,7 +444,8 @@ export async function POST(req) {
           if(assign[cls.class_id].some(a=>a.day===day&&a.subject_id===sp.subject_id)) continue;
           const freeRoom=itCabs.find(r=>(rCount[day][slot][r.room_id]||0)<1);
           if(!freeRoom) continue;
-          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot);
+          const assigned = getAssignedT(cls.class_id, sp.subject_id);
+          const teacher=pickT(sp.subjects.name,teachers,tBusy[day][slot],day,slot, assigned);
           if(!teacher) continue;
           itSC[day][slot]++;
           tBusy[day][slot].add(teacher.teacher_id);
@@ -370,8 +460,9 @@ export async function POST(req) {
     const newSchedule = [];
 
     for(const cls of shuf([...classes])){
+      const isSenior = parseInt(cls.class_name) >= 10;
       const classNum = parseInt(cls.class_name);
-      const maxPerDay = classNum>=10?MAX_SR:MAX_JR;
+      const maxPerDay = isSenior ? MAX_SR : MAX_JR;
 
       // Обычные предметы (без спец)
       const lessons = [];
@@ -406,13 +497,32 @@ export async function POST(req) {
       // Назначаем slot номера — заполняем промежутки между preAssigned
       for(const day of DAYS){
         const takenSlots=new Set(assign[cls.class_id].filter(a=>a.day===day).map(a=>a.slot));
-        let s=1;
+        const possibleSlots = [];
+        for(let ps=1; ps<=maxPerDay; ps++) {
+          if(!takenSlots.has(ps)) possibleSlots.push(ps);
+        }
+
         for(const lesson of dayLoad[day]){
-          while(takenSlots.has(s)) s++;
-          const slot=s; takenSlots.add(s); s++;
           const sn=lesson.subject_name;
-          const teacher=pickT(sn,teachers,tBusy[day][slot],day,slot);
-          if(!teacher) continue;
+          const assigned = getAssignedT(cls.class_id, lesson.subject_id);
+          
+          let teacher = null;
+          let bestSlot = -1;
+
+          // Search for a slot where an assigned teacher is free
+          for(const slot of possibleSlots){
+            teacher = pickT(sn, teachers, tBusy[day]?.[slot], day, slot, assigned);
+            if(teacher) {
+              bestSlot = slot;
+              break;
+            }
+          }
+
+          if(!teacher) continue; // Still a hole, but we tried all slots
+          const slot = bestSlot;
+          // Remove slot from possible slots
+          const sIdx = possibleSlots.indexOf(slot);
+          if(sIdx > -1) possibleSlots.splice(sIdx, 1);
 
           const splitTypes=(cls.class_type||"").toLowerCase().split(/[,\-\s]+/).filter(Boolean);
           const shouldSplit=Number(cls.students_count||0)>24&&splitTypes.some(st=>sn.toLowerCase().includes(st));
@@ -420,11 +530,13 @@ export async function POST(req) {
           if(shouldSplit){
             const r1pool=getRooms(sn,cabinets,true).filter(r=>roomOk(day,slot,r));
             const r1=r1pool[Math.floor(Math.random()*r1pool.length)]||getRooms(sn,cabinets,true)[0]||cabinets.find(c=>!isSpecRoom(c.room_number||""))||cabinets[0];
-            const busy2=new Set(tBusy[day][slot]); busy2.add(teacher.teacher_id);
-            const t2=pickT(sn,teachers,busy2,day,slot)||teacher;
+            const busySet = tBusy[day]?.[slot] || new Set();
+            const busy2 = new Set(busySet); 
+            busy2.add(teacher.teacher_id);
+            const t2=pickT(sn,teachers,busy2,day,slot, assigned)||teacher;
             const r2pool=getRooms(sn,cabinets,true).filter(r=>roomOk(day,slot,r)&&r.room_id!==r1.room_id);
             const r2=r2pool[Math.floor(Math.random()*r2pool.length)]||r1;
-            tBusy[day][slot].add(teacher.teacher_id); tBusy[day][slot].add(t2.teacher_id);
+            tBusy[day]?.[slot]?.add?.(teacher.teacher_id); tBusy[day]?.[slot]?.add?.(t2.teacher_id);
             useRoom(day,slot,r1.room_id);
             newSchedule.push({class_id:cls.class_id,subject_id:lesson.subject_id,teacher_id:teacher.teacher_id,room_id:r1.room_id,day_of_week:day,lesson_num:slot,year});
             if(r2.room_id!==r1.room_id||t2.teacher_id!==teacher.teacher_id){
@@ -434,8 +546,9 @@ export async function POST(req) {
           } else {
             let room=null;
             if(teacher.classroom) room=cabinets.find(c=>c.room_number.toLowerCase()===teacher.classroom.toLowerCase()&&roomOk(day,slot,c))||null;
+            if(!room&&cls.room_id) room=cabinets.find(c=>c.room_id===cls.room_id&&roomOk(day,slot,c))||null;
             if(!room){ const pool=getRooms(sn,cabinets,false).filter(r=>roomOk(day,slot,r)); room=pool[Math.floor(Math.random()*pool.length)]||getRooms(sn,cabinets,false)[0]||cabinets.find(c=>!isSpecRoom(c.room_number||""))||cabinets[0]; }
-            tBusy[day][slot].add(teacher.teacher_id); useRoom(day,slot,room.room_id);
+            tBusy[day]?.[slot]?.add?.(teacher.teacher_id); useRoom(day,slot,room.room_id);
             newSchedule.push({class_id:cls.class_id,subject_id:lesson.subject_id,teacher_id:teacher.teacher_id,room_id:room.room_id,day_of_week:day,lesson_num:slot,year});
           }
         }
@@ -468,8 +581,26 @@ export async function POST(req) {
       for(const row of grouped[key]) row.lesson_num=remap[row.lesson_num];
     }
 
+    // ── ФАЗА 4: Проверка на "дыры" (недостающие уроки) ────────
+    const warnings = [];
+    for (const cls of classes) {
+      for (const sp of cls.study_plan) {
+        if (!sp.subjects) continue;
+        const requiredHours = Math.ceil(Number(sp.hours_per_week));
+        const scheduledLessons = newSchedule.filter(
+          row => row.class_id === cls.class_id && row.subject_id === sp.subject_id
+        );
+        const uniqueSlots = new Set(scheduledLessons.map(r => `${r.day_of_week}_${r.lesson_num}`));
+        const scheduledCount = uniqueSlots.size;
+
+        if (scheduledCount < requiredHours) {
+          warnings.push(`Класс ${cls.class_name}: "${sp.subjects.name}" поставлено ${scheduledCount} из ${requiredHours} уроков. Возможная причина: закрепленный учитель занят, либо в базе нет учителя с таким предметом.`);
+        }
+      }
+    }
+
     if(newSchedule.length) await prisma.schedule.createMany({data:newSchedule});
-    return new Response(JSON.stringify({success:true,count:newSchedule.length}),{status:200});
+    return new Response(JSON.stringify({success:true,count:newSchedule.length, warnings}),{status:200});
   } catch(err){
     console.error("Ошибка генерации:",err);
     return new Response(JSON.stringify({success:false,error:err.message}),{status:500});

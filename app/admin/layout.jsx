@@ -18,18 +18,12 @@ export default function AdminLayout({ children }) {
       <aside className="w-64 bg-[#0d254c] text-white flex flex-col shadow-2xl">
         {/* Лого / Заголовок */}
         <div className="p-6 text-2xl font-bold border-b border-blue-800/50">
-          Админ-панель
+          Расписания
         </div>
 
         {/* Навигация */}
         <nav className="flex-1 p-4 flex flex-col gap-2">
-          <Link
-            href="/admin"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
-          >
-            <Users size={18} />
-            Пользователи
-          </Link>
+
 
           <Link
             href="/admin/teachers"
@@ -61,11 +55,11 @@ export default function AdminLayout({ children }) {
           </Link>
 
           <Link
-            href="/admin/duties"
+            href="/admin/subjects"
             className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
           >
-            <Shield size={18} />
-            Дежурства
+            <BookOpen size={18} />
+            Предметы
           </Link>
 
           <Link

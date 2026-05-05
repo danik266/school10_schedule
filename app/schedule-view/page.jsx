@@ -63,7 +63,9 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, variant = "
         </div>
         <div style={{ padding: "0 24px 24px" }}>
           <h3 style={{ fontSize: 17, fontWeight: 700, color: "var(--sv-text)", marginBottom: 8, textAlign: "center" }}>{title}</h3>
-          <p style={{ fontSize: 14, color: "var(--sv-text2)", textAlign: "center", lineHeight: 1.6 }}>{message}</p>
+          <div style={{ maxHeight: "60vh", overflowY: "auto", paddingRight: 5 }}>
+            <p style={{ fontSize: 14, color: "var(--sv-text2)", textAlign: "left", lineHeight: 1.6, whiteSpace: "pre-wrap", margin: 0 }}>{message}</p>
+          </div>
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             <button className="sv-btn sv-btn-ghost" style={{ flex: 1 }} onClick={onCancel}>{cancelText}</button>
             <button className={`sv-btn ${variant === "danger" ? "sv-btn-danger" : "sv-btn-primary"}`} style={{ flex: 1 }} onClick={onConfirm}>{confirmText}</button>
@@ -100,10 +102,7 @@ export default function ScheduleView() {
   const [conflicts, setConflicts] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [sickTeacherId, setSickTeacherId] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isSubstituting, setIsSubstituting] = useState(false);
+
 
   const [toasts, setToasts] = useState([]);
   const [snapshotModal, setSnapshotModal] = useState(false);
@@ -213,34 +212,49 @@ export default function ScheduleView() {
     if (classId) fetchClassStats(classId);
   }, [currentClassIndex, schedule]);
 
-  const generateSchedule = async () => {
-    setGenerating(true);
-    try {
-      // Передаём дежурства из localStorage, чтобы генератор учёл занятых учителей
-      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
-      const res = await fetch("/api/generate-schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duties }),
-      });
-      const data = await res.json();
-      if (data.success) await fetchSchedule();
-    } catch {} finally { setGenerating(false); }
-  };
+    const generateSchedule = async () => {
+      setGenerating(true);
+      try {
+        const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
+        const res = await fetch("/api/generate-schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ duties }),
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          showToast(errData.error || "Ошибка сервера при генерации", "error");
+          return;
+        }
 
-  const handleSubstitute = async () => {
-    if (!sickTeacherId || !startDate || !endDate) { showToast("Выберите учителя и укажите период!", "error"); return; }
-    if (new Date(endDate) < new Date(startDate)) { showToast("Дата окончания не может быть раньше даты начала!", "error"); return; }
-    setIsSubstituting(true);
-    try {
-      const duties = (() => { try { return JSON.parse(localStorage.getItem("teacher_duties") || "[]"); } catch { return []; } })();
-      const res = await fetch("/api/substitute-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherId: sickTeacherId, startDate, endDate, duties }) });
-      const data = await res.json();
-      if (data.success) { showToast("Замены успешно найдены и применены!", "success"); setSickTeacherId(""); setStartDate(""); setEndDate(""); await fetchSchedule(); }
-      else showToast(data.message || data.error || "Ошибка при поиске замены", "error");
-    } catch { showToast("Ошибка сети", "error"); }
-    finally { setIsSubstituting(false); }
-  };
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Генерация успешно завершена! Создано уроков: ${data.count || 0}`, "success");
+          if (data.warnings && data.warnings.length > 0) {
+            const warningMsg = "Во время генерации возникли конфликты (не все уроки поставлены):\n\n" + 
+              data.warnings.slice(0, 10).join("\n") + 
+              (data.warnings.length > 10 ? "\n...и еще " + (data.warnings.length - 10) : "") + 
+              "\n\nВы уверены, что хотите оставить это расписание? Если нет, удалите его и исправьте привязки.";
+            
+            const ok = await confirm({ title: "Внимание: Дыры в расписании", message: warningMsg, variant: "warning", confirmText: "Оставить так" });
+            if (!ok) {
+              await fetch("/api/delete-schedule", { method: "DELETE" });
+              await fetchSchedule();
+              return;
+            }
+          }
+          await fetchSchedule();
+        } else {
+          showToast(data.error || "Не удалось сгенерировать расписание", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("Произошла ошибка при выполнении запроса", "error");
+      } finally { setGenerating(false); }
+    };
+
+
 
   const updateTeacher = async (schedule_id, teacher_id, day_of_week, lesson_num) => {
     try {
@@ -801,35 +815,6 @@ export default function ScheduleView() {
 
           {/* ── MAIN CONTENT ── */}
           <main style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 14, minWidth: 0, overflowX: "auto" }}>
-
-            {/* Substitute Panel */}
-            <div className="sv-card" style={{ padding: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
-                <span style={{ color: "var(--sv-red)", display: "flex" }}><Icons.RefreshCw /></span>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--sv-text)" }}>Режим замены</div>
-                  <div style={{ fontSize: 12, color: "var(--sv-text3)" }}>Назначьте свободного учителя на период отсутствия</div>
-                </div>
-                {/* Mobile sidebar toggle */}
-                <button className="sv-btn sv-btn-ghost sv-btn-sm sv-show-mobile" style={{ marginLeft: "auto" }} onClick={() => setSidebarOpen(true)}>
-                  <Icons.Menu /> Панель
-                </button>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 9, alignItems: "center" }}>
-                <select className="sv-select" style={{ flex: "1 1 220px" }} value={sickTeacherId} onChange={e => setSickTeacherId(e.target.value)}>
-                  <option value="">— Выберите учителя —</option>
-                  {teachers.map(t => <option key={t.teacher_id} value={t.teacher_id}>{t.full_name} ({t.subject})</option>)}
-                </select>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, flex: "1 1 200px" }}>
-                  <input type="date" className="sv-input" style={{ flex: 1 }} value={startDate} onChange={e => setStartDate(e.target.value)} />
-                  <span style={{ color: "var(--sv-text3)", fontSize: 13, fontWeight: 500 }}>—</span>
-                  <input type="date" className="sv-input" style={{ flex: 1 }} value={endDate} onChange={e => setEndDate(e.target.value)} />
-                </div>
-                <button className="sv-btn sv-btn-danger" disabled={isSubstituting} onClick={handleSubstitute}>
-                  {isSubstituting ? <><div className="sv-spinner" style={{ borderTopColor: "white" }} />Ищем...</> : <><Icons.Search />Найти замену</>}
-                </button>
-              </div>
-            </div>
 
             {/* Toolbar */}
             <div className="sv-toolbar sv-toolbar-scroll">

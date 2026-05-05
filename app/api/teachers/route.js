@@ -13,20 +13,71 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-// GET — получить список учителей
+// GET — получить список учителей (с привязкой к классу)
 export async function GET() {
   try {
     const teachers = await prisma.teachers.findMany({
       orderBy: { teacher_id: "asc" },
+      include: {
+        homeroom_class: {
+          select: { class_id: true, class_name: true },
+        },
+        class_subjects: {
+          include: {
+            classes: {
+              select: { class_id: true, class_name: true },
+            },
+            subjects: {
+              select: { subject_id: true, name: true },
+            },
+          },
+        },
+      },
     });
-    return NextResponse.json(teachers);
+
+    // Получаем все учебные планы для расчета часов
+    const studyPlans = await prisma.study_plan.findMany({
+      select: {
+        class_id: true,
+        subject_id: true,
+        hours_per_week: true,
+      },
+    });
+
+    // Создаем карту часов: "classId-subjectId" -> hours
+    const hoursMap = {};
+    studyPlans.forEach((plan) => {
+      hoursMap[`${plan.class_id}-${plan.subject_id}`] = Number(plan.hours_per_week);
+    });
+
+    // Обогащаем данные учителей информацией о нагрузке
+    const enrichedTeachers = teachers.map((t) => {
+      let totalWorkload = 0;
+      const subjectsInfo = t.class_subjects.map((cs) => {
+        const hours = hoursMap[`${cs.class_id}-${cs.subject_id}`] || 0;
+        totalWorkload += hours;
+        return {
+          class_name: cs.classes.class_name,
+          subject_name: cs.subjects.name,
+          hours: hours,
+        };
+      });
+
+      return {
+        ...t,
+        total_workload: totalWorkload,
+        subjects_info: subjectsInfo,
+      };
+    });
+
+    return NextResponse.json(enrichedTeachers);
   } catch (error) {
     console.error("ОШИБКА GET:", error);
     return NextResponse.json({ error: "Ошибка загрузки" }, { status: 500 });
   }
 }
 
-// POST — добавить учителя (с ФИО и Предметом)
+// POST — добавить учителя
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -41,14 +92,18 @@ export async function POST(request) {
     const newTeacher = await prisma.teachers.create({
       data: {
         full_name: body.name.trim(),
-        subject: body.subject ? body.subject.trim() : null, // Добавляем предмет
+        subject: body.subject ? body.subject.trim() : "",
+        classroom: body.classroom ? body.classroom.trim() : null,
+        homeroom_class_id: body.homeroom_class_id ? Number(body.homeroom_class_id) : null,
+      },
+      include: {
+        homeroom_class: {
+          select: { class_id: true, class_name: true },
+        },
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      teacher: newTeacher,
-    });
+    return NextResponse.json({ success: true, teacher: newTeacher });
   } catch (error) {
     console.error("ОШИБКА POST:", error);
     return NextResponse.json(
@@ -80,10 +135,12 @@ export async function DELETE(request) {
     );
   }
 }
+
+// PATCH — обновить учителя
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { id, name, subject, classroom } = body;
+    const { id, name, subject, classroom, homeroom_class_id } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -96,8 +153,14 @@ export async function PATCH(request) {
       where: { teacher_id: Number(id) },
       data: {
         full_name: name.trim(),
-        subject: subject ? subject.trim() : null,
+        subject: subject ? subject.trim() : "",
         classroom: classroom ? classroom.trim() : null,
+        homeroom_class_id: homeroom_class_id ? Number(homeroom_class_id) : null,
+      },
+      include: {
+        homeroom_class: {
+          select: { class_id: true, class_name: true },
+        },
       },
     });
 
