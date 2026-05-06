@@ -1,18 +1,14 @@
-
 "use client";
 import { useState, useEffect } from "react";
 import { 
-  ChevronDown, ChevronUp, Plus, Trash2, Save, X, 
-  BookOpen, Users, Clock, Search, UserPlus, Pencil
+  Plus, Trash2, Save, X, 
+  BookOpen, Clock, Search, UserPlus, Pencil, DoorOpen
 } from "lucide-react";
 
 export default function AdminTeachersPage() {
   const [teachers, setTeachers] = useState([]);
-  const [classes, setClasses] = useState([]);
-  const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState(null);
 
   // Редактирование учителя
   const [editId, setEditId] = useState(null);
@@ -49,11 +45,6 @@ export default function AdminTeachersPage() {
   const [newSubject, setNewSubject] = useState("");
   const [newClassroom, setNewClassroom] = useState("");
 
-  // Форма добавления привязки (локальная для каждого учителя)
-  const [bindClassId, setBindClassId] = useState("");
-  const [bindSubjectId, setBindSubjectId] = useState("");
-  const [bindGroup, setBindGroup] = useState("Толық сынып");
-
   const fetchTeachers = async () => {
     try {
       const res = await fetch("/api/teachers");
@@ -66,40 +57,9 @@ export default function AdminTeachersPage() {
     }
   };
 
-  const fetchClasses = async () => {
-    try {
-      const res = await fetch("/api/classes");
-      const data = await res.json();
-      const all = [...(data.small || []), ...(data.large || [])];
-      all.sort((a, b) => a.class_name.localeCompare(b.class_name, "ru"));
-      setClasses(all);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => {
     fetchTeachers();
-    fetchClasses();
   }, []);
-
-  // Подгружаем предметы для выбранного класса при настройке нагрузки
-  useEffect(() => {
-    if (bindClassId) {
-      fetch(`/api/subjects/${bindClassId}`)
-        .then(r => r.json())
-        .then(data => {
-          // API /api/subjects/[classId] возвращает массив объектов {subject_id, name, ...}
-          setSubjects(Array.isArray(data) ? data : []);
-        })
-        .catch(err => {
-          console.error("Ошибка загрузки предметов:", err);
-          setSubjects([]);
-        });
-    } else {
-      setSubjects([]);
-    }
-  }, [bindClassId]);
 
   const handleAddTeacher = async (e) => {
     e.preventDefault();
@@ -114,47 +74,16 @@ export default function AdminTeachersPage() {
       }),
     });
     if (res.ok) {
-      const data = await res.json();
       setNewName("");
       setNewSubject("");
       setNewClassroom("");
       fetchTeachers();
-      // Раскрываем нового учителя для настройки классов
-      if (data.teacher) setExpandedId(data.teacher.teacher_id);
     }
   };
 
   const handleDeleteTeacher = async (id) => {
-    if (!confirm("Удалить учителя и все его привязки к классам?")) return;
+    if (!confirm("Удалить учителя?")) return;
     const res = await fetch("/api/teachers", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) fetchTeachers();
-  };
-
-  const handleAddBinding = async (teacherId) => {
-    if (!bindClassId || !bindSubjectId) return;
-    const res = await fetch("/api/class-subjects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        teacher_id: teacherId,
-        class_id: bindClassId,
-        subject_id: bindSubjectId,
-        group_type: bindGroup
-      }),
-    });
-    if (res.ok) {
-      setBindClassId("");
-      setBindSubjectId("");
-      fetchTeachers();
-    }
-  };
-
-  const handleDeleteBinding = async (id) => {
-    const res = await fetch("/api/class-subjects", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -173,9 +102,9 @@ export default function AdminTeachersPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-[#0d254c] tracking-tight">
-            Преподаватели и Нагрузка
+            Преподаватели
           </h1>
-          <p className="text-gray-500 mt-1">Управление составом учителей и распределение учебных часов</p>
+          <p className="text-gray-500 mt-1">Управление составом учителей, основным предметом и кабинетом</p>
         </div>
       </div>
 
@@ -257,25 +186,20 @@ export default function AdminTeachersPage() {
           </div>
         ) : (
           filteredTeachers.map((t) => {
-            const isExpanded = expandedId === t.teacher_id;
             const isEditing = editId === t.teacher_id;
             
             return (
               <div 
                 key={t.teacher_id} 
-                className={`bg-white rounded-2xl border transition-all duration-300 ${isExpanded ? 'ring-2 ring-blue-500 border-transparent shadow-xl' : 'border-gray-100 hover:border-gray-300 shadow-sm'}`}
+                className="bg-white rounded-2xl border border-gray-100 hover:border-gray-300 shadow-sm transition-all duration-300"
               >
-                {/* Заголовок карточки */}
-                <div 
-                  className="p-5 flex items-center justify-between cursor-pointer"
-                  onClick={() => !isEditing && setExpandedId(isExpanded ? null : t.teacher_id)}
-                >
+                <div className="p-5 flex items-center justify-between">
                   <div className="flex items-center gap-5 flex-1">
                     <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-xl shrink-0">
                       {t.full_name[0]}
                     </div>
                     {isEditing ? (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 mr-4" onClick={e => e.stopPropagation()}>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 mr-4">
                         <input 
                           value={editName} onChange={e => setEditName(e.target.value)}
                           className="border border-gray-300 rounded-lg p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
@@ -301,7 +225,7 @@ export default function AdminTeachersPage() {
                           </span>
                           {t.classroom && (
                             <span className="text-sm text-gray-500 flex items-center gap-1">
-                              · каб. {t.classroom}
+                              <DoorOpen size={14} /> каб. {t.classroom}
                             </span>
                           )}
                         </div>
@@ -319,7 +243,7 @@ export default function AdminTeachersPage() {
                     
                     <div className="flex items-center gap-2">
                       {isEditing ? (
-                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <div className="flex gap-1">
                           <button onClick={handleUpdate} className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                             <Save size={18} />
                           </button>
@@ -330,118 +254,22 @@ export default function AdminTeachersPage() {
                       ) : (
                         <>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); startEdit(t); }}
+                            onClick={() => startEdit(t)}
                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
                           >
                             <Pencil size={18} />
                           </button>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteTeacher(t.teacher_id); }}
+                            onClick={() => handleDeleteTeacher(t.teacher_id)}
                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
                           >
                             <Trash2 size={18} />
                           </button>
-                          <div className={`p-2 rounded-lg transition ${isExpanded ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}>
-                            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                          </div>
                         </>
                       )}
                     </div>
                   </div>
                 </div>
-
-                {/* Раскрывающаяся панель управления нагрузкой */}
-                {isExpanded && (
-                  <div className="p-6 border-t border-gray-50 bg-gray-50/50 rounded-b-2xl animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      {/* Список текущих классов */}
-                      <div className="space-y-4">
-                        <h4 className="font-bold text-gray-700 flex items-center gap-2">
-                          <Users size={16} /> Закрепленные классы
-                        </h4>
-                        <div className="space-y-2">
-                          {t.class_subjects && t.class_subjects.length > 0 ? (
-                            t.class_subjects.map((cs) => (
-                              <div key={cs.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-gray-100 shadow-sm group">
-                                <div className="flex items-center gap-3">
-                                  <span className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center font-bold text-gray-700">
-                                    {cs.classes.class_name}
-                                  </span>
-                                  <div>
-                                    <p className="font-bold text-sm text-gray-800">{cs.subjects.name}</p>
-                                    <p className="text-[10px] text-gray-400 font-medium uppercase">{cs.group_type}</p>
-                                  </div>
-                                </div>
-                                <button 
-                                  onClick={() => handleDeleteBinding(cs.id)}
-                                  className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="py-10 text-center text-gray-400 text-sm italic border-2 border-dashed border-gray-200 rounded-2xl bg-white">
-                              Классы пока не добавлены
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Форма добавления привязки */}
-                      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                        <h4 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                          <Plus size={16} /> Добавить нагрузку
-                        </h4>
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-400 ml-1">Класс</label>
-                            <select 
-                              value={bindClassId}
-                              onChange={(e) => setBindClassId(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-gray-50"
-                            >
-                              <option value="">Выберите класс...</option>
-                              {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-400 ml-1">Предмет</label>
-                            <select 
-                              value={bindSubjectId}
-                              onChange={(e) => setBindSubjectId(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-gray-50"
-                            >
-                              <option value="">Выберите предмет...</option>
-                              {subjects.map(s => <option key={s.subject_id} value={s.subject_id}>{s.name}</option>)}
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-400 ml-1">Группа</label>
-                            <select 
-                              value={bindGroup}
-                              onChange={(e) => setBindGroup(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-gray-50"
-                            >
-                              <option value="Толық сынып">Весь класс (Толық сынып)</option>
-                              <option value="1 топ">1 подгруппа</option>
-                              <option value="2 топ">2 подгруппа</option>
-                              <option value="ұлдар">Мальчики (Ұлдар)</option>
-                              <option value="қыздар">Девочки (Қыздар)</option>
-                            </select>
-                          </div>
-                          <button 
-                            onClick={() => handleAddBinding(t.teacher_id)}
-                            disabled={!bindClassId || !bindSubjectId}
-                            className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-30 disabled:grayscale shadow-lg shadow-blue-600/20"
-                          >
-                            Привязать к учителю
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })
@@ -450,7 +278,7 @@ export default function AdminTeachersPage() {
 
       <div className="mt-10 pt-6 border-t border-gray-100 flex items-center justify-between text-xs font-bold text-gray-400 uppercase tracking-widest">
         <span>Всего в штате: {teachers.length}</span>
-        <span>Школа №10 · Система Управления Нагрузкой</span>
+        <span>Школа №10</span>
       </div>
     </div>
   );

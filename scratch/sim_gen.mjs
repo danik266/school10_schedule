@@ -77,7 +77,7 @@ async function runGen() {
         const assigned = getAssignedT(cls.class_id, lesson.subject_id);
         const teacher=pickT(sn,teachers,tBusy[day][slot],day,slot, assigned);
         if(!teacher) {
-            // console.log(`Could not find teacher for ${cls.class_name} - ${sn}`);
+            console.log(`Could not find teacher for ${cls.class_name} - ${sn} on ${day} slot ${slot}`);
             s++; continue;
         }
         tBusy[day][slot].add(teacher.teacher_id);

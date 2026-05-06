@@ -1,3 +1,4 @@
+// Force rebuild
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
@@ -20,3 +21,20 @@ export async function GET() {
     return Response.json({ error: err.message }, { status: 500 });
   }
 }
+
+export async function PATCH(request) {
+  try {
+    const { class_id, students_count } = await request.json();
+    if (!class_id) {
+      return Response.json({ error: "Missing class_id" }, { status: 400 });
+    }
+    const updated = await prisma.classes.update({
+      where: { class_id: Number(class_id) },
+      data: { students_count: students_count === "" ? null : Number(students_count) },
+    });
+    return Response.json({ success: true, class: updated });
+  } catch (err) {
+    console.error("classes PATCH error:", err);
+    return Response.json({ error: err.message }, { status: 500 });
+  }
+}

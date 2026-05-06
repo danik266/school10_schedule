@@ -24,6 +24,13 @@ export default function AdminLayout({ children }) {
         {/* Навигация */}
         <nav className="flex-1 p-4 flex flex-col gap-2">
 
+          <Link
+            href="/admin/class-subjects"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
+          >
+            <Users size={18} />
+            Привязка преподавателей
+          </Link>
 
           <Link
             href="/admin/teachers"
@@ -39,19 +46,6 @@ export default function AdminLayout({ children }) {
           >
             <DoorOpen size={18} />
             Кабинеты
-          </Link>
-
-          {/* Разделитель */}
-          <div className="mt-6 mb-2 px-3 text-xs uppercase text-blue-300/70 font-bold tracking-wider">
-            Управление нагрузкой
-          </div>
-
-          <Link
-            href="/admin/workload"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
-          >
-            <BookOpen size={18} />
-            Нагрузка (Часы)
           </Link>
 
           <Link
@@ -76,19 +70,6 @@ export default function AdminLayout({ children }) {
           >
             <Calendar size={18} />
             Расписание
-          </Link>
-
-          {/* Разделитель */}
-          <div className="mt-6 mb-2 px-3 text-xs uppercase text-blue-300/70 font-bold tracking-wider">
-            Учебный план
-          </div>
-
-          <Link
-            href="/admin/curriculum"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-800 transition"
-          >
-            <ClipboardList size={18} />
-            Учебный план
           </Link>
         </nav>
 

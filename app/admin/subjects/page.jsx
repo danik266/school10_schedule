@@ -6,7 +6,6 @@ import { BookOpen, Plus, Trash2, Edit2, Info, CheckCircle, Save, X, AlertTriangl
 export default function SubjectsPage() {
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [message, setMessage] = useState({ text: "", type: "" });
@@ -33,27 +32,6 @@ export default function SubjectsPage() {
     }
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    try {
-      const res = await fetch("/api/subjects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName })
-      });
-      const data = await res.json();
-      if (data.success) {
-        showMsg("Предмет добавлен");
-        setNewName("");
-        fetchSubjects();
-      } else {
-        showMsg(data.message || data.error, "error");
-      }
-    } catch {
-      showMsg("Ошибка сети", "error");
-    }
-  };
 
   const handleDelete = async (id) => {
     if (!confirm("Удалить предмет? Это может повлиять на учебные планы.")) return;
@@ -160,21 +138,7 @@ export default function SubjectsPage() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h2 className="text-xl font-bold text-[#0d254c]">Список предметов</h2>
-          <form onSubmit={handleAdd} className="flex w-full sm:w-auto gap-2">
-            <input
-              type="text"
-              placeholder="Название нового предмета..."
-              className="flex-1 sm:w-64 border border-gray-300 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#0d254c] text-sm"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <button
-              type="submit"
-              className="bg-[#0d254c] hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 whitespace-nowrap"
-            >
-              <Plus size={16} /> Добавить
-            </button>
-          </form>
+
         </div>
 
         {loading ? (

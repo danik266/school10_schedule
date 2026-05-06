@@ -525,7 +525,7 @@ export async function POST(req) {
           if(sIdx > -1) possibleSlots.splice(sIdx, 1);
 
           const splitTypes=(cls.class_type||"").toLowerCase().split(/[,\-\s]+/).filter(Boolean);
-          const shouldSplit=Number(cls.students_count||0)>24&&splitTypes.some(st=>sn.toLowerCase().includes(st));
+          const shouldSplit = (assigned.length > 1) || (Number(cls.students_count||0) >= 25 && splitTypes.some(st=>sn.toLowerCase().includes(st)));
 
           if(shouldSplit){
             const r1pool=getRooms(sn,cabinets,true).filter(r=>roomOk(day,slot,r));
